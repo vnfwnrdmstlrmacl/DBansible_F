@@ -1,0 +1,45 @@
+---
+- name: Install Patroni dependencies
+  dnf:
+    name:
+      - python3-pip
+      - python3-psycopg2
+    state: present
+
+- name: Install patroni[etcd] via pip
+  pip:
+    name: "patroni[etcd]"
+    executable: pip3
+
+- name: Render patroni config
+  template:
+    src: patroni.yml.j2
+    dest: /etc/patroni.yml
+    mode: "0600"
+  when: inventory_hostname in ['db-a', 'db-s']
+
+- name: Render systemd unit for patroni
+  copy:
+    dest: /etc/systemd/system/patroni.service
+    mode: "0644"
+    content: |
+      [Unit]
+      Description=Patroni PostgreSQL HA Cluster
+      After=network.target
+
+      [Service]
+      Type=simple
+      User=postgres
+      ExecStart=/usr/local/bin/patroni /etc/patroni.yml
+      Restart=on-failure
+      LimitNOFILE=65536
+
+      [Install]
+      WantedBy=multi-user.target
+
+- name: Enable and start patroni (only on db-a, db-s)
+  service:
+    name: patroni
+    state: started
+    enabled: true
+  when: inventory_hostname in ['db-a', 'db-s']

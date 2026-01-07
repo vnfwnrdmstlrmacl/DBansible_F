@@ -1,0 +1,19 @@
+# /etc/etcd/etcd.conf  (YAML format)
+
+name: "{{ inventory_hostname }}"
+data-dir: "/var/lib/etcd"
+
+listen-peer-urls: "http://{{ db_nodes[inventory_hostname].ip }}:{{ etcd_peer_port }}"
+listen-client-urls: "http://{{ db_nodes[inventory_hostname].ip }}:{{ etcd_client_port }},http://127.0.0.1:{{ etcd_client_port }}"
+
+initial-advertise-peer-urls: "http://{{ db_nodes[inventory_hostname].ip }}:{{ etcd_peer_port }}"
+advertise-client-urls: "http://{{ db_nodes[inventory_hostname].ip }}:{{ etcd_client_port }}"
+
+initial-cluster-token: "etcd-patroni"
+initial-cluster-state: "new"
+initial-cluster: "{% for h, v in db_nodes.items() -%}{{ h }}=http://{{ v.ip }}:{{ etcd_peer_port }}{% if not loop.last %},{% endif %}{%- endfor %}"
+
+# 안정성 옵션(권장)
+heartbeat-interval: 100
+election-timeout: 1000
+

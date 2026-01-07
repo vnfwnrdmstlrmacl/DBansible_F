@@ -1,0 +1,29 @@
+---
+- name: Ensure firewalld installed
+  ansible.builtin.dnf:
+    name: firewalld
+    state: present
+
+- name: Ensure firewalld running
+  ansible.builtin.service:
+    name: firewalld
+    state: started
+    enabled: true
+
+# etcd client (2379) / peer (2380) : DB 대역만 허용
+- name: Allow etcd client port 2379 from DB subnet
+  ansible.posix.firewalld:
+    zone: public
+    rich_rule: 'rule family="ipv4" source address="10.2.3.0/24" port port="2379" protocol="tcp" accept'
+    permanent: true
+    immediate: true
+    state: enabled
+
+- name: Allow etcd peer port 2380 from DB subnet
+  ansible.posix.firewalld:
+    zone: public
+    rich_rule: 'rule family="ipv4" source address="10.2.3.0/24" port port="2380" protocol="tcp" accept'
+    permanent: true
+    immediate: true
+    state: enabled
+

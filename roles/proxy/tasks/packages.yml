@@ -1,0 +1,16 @@
+- name: Install HAProxy and Keepalived
+  ansible.builtin.dnf:
+    name:
+      - haproxy
+      - keepalived
+      - curl
+    state: present
+
+- name: Enable services
+  ansible.builtin.service:
+    name: "{{ item }}"
+    enabled: true
+  loop:
+    - haproxy
+    - keepalived
+

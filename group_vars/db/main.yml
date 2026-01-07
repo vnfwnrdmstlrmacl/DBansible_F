@@ -1,0 +1,56 @@
+# group_vars/db/main.yml
+# group_vars/db/main.yml
+db_vault_vars_file: "{{ playbook_dir }}/group_vars/db/vault.yml"
+
+# 네트워크
+db_subnet_cidr: "10.2.3.0/24"
+db_gateway_vip: "10.2.3.254"
+
+# (되돌아오는 경로가 필요한 외부 대역)
+svc_subnet_cidr: "10.2.2.0/24"
+svc_vip: "10.2.2.254"
+
+# storage1 정적 라우트(문서 7번)
+storage_host: "storage1"
+storage_ip: "10.2.2.30"        # 실제 storage1 IP로 수정
+storage_needs_route: true
+
+# PostgreSQL / Patroni
+pg_version: 16
+pg_port: 5432
+patroni_rest_port: 8008
+patroni_scope: "pg-ha"
+patroni_namespace: "/service"
+
+# etcd
+etcd_client_port: 2379
+etcd_peer_port: 2380
+
+# DB 식별(호스트명과 매핑)
+db_nodes:
+  db-a:
+    ip: "10.2.3.2"
+  db-s:
+    ip: "10.2.3.3"
+  db-b:
+    ip: "10.2.3.4"
+
+# pgBackRest / NFS
+pgbackrest_repo_path: "/mnt/pgbackrest"
+nfs_server: "10.2.2.30"         # storage1 IP
+nfs_export: "/exports/pgbackrest" # storage1 export path
+nfs_mount: "/mnt/pgbackrest"
+backup_full_schedule: "daily"    # cron/systemd-timer로 확장 가능
+retention_full: 7
+etcd_version: "v3.5.12"
+etcd_download_url: "https://github.com/etcd-io/etcd/releases/download/{{ etcd_version }}/etcd-{{ etcd_version }}-linux-amd64.tar.gz"
+  #etcd_bootstrap_reset: true
+  ## Patroni 템플릿 호환용 etcd dict (강제 제공)
+# Patroni용 etcd endpoint (문자열 고정)
+etcd_hosts: "10.2.3.2:2379,10.2.3.3:2379,10.2.3.4:2379"
+
+# 템플릿 호환용 dict (etcd.hosts)
+etcd:
+  hosts: "{{ etcd_hosts }}"
+
+

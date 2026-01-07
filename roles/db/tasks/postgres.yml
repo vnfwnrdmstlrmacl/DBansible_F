@@ -1,0 +1,15 @@
+---
+- name: Install PostgreSQL server packages
+  dnf:
+    name:
+      - postgresql-server
+      - postgresql
+    state: present
+
+- name: Ensure postgres service stopped before Patroni manages it
+  service:
+    name: postgresql
+    state: stopped
+    enabled: false
+  ignore_errors: true
+
