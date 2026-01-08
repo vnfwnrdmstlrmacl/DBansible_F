@@ -19,6 +19,7 @@
 
 - name: Build DB (PostgreSQL / Patroni / etcd / Backup)
   hosts: db
+  serial: 1
   gather_facts: true
   become: true
 

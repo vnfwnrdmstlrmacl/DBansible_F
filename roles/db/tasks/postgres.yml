@@ -49,3 +49,15 @@
   when:
     - inventory_hostname == 'db-a'
     - not pgdata_initialized.stat.exists
+
+# --------------------------------------------------------------
+# DB-S (Replica)를 위한 복제 인증 파일 생성
+# --------------------------------------------------------------
+- name: Create .pgpass file for replication (Slave only)
+  ansible.builtin.template:
+    src: pgpass.j2
+    dest: /var/lib/pgsql/pgpass
+    owner: postgres
+    group: postgres
+    mode: '0600'
+  when: inventory_hostname == 'db-s'

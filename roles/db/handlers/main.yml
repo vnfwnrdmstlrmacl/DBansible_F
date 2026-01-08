@@ -1,14 +1,20 @@
 ---
-- name: Reload systemd
+- name: restart etcd
+  ansible.builtin.systemd:
+    name: etcd
+    state: restarted
+    enabled: true
+
+- name: reload systemd
   ansible.builtin.systemd:
     daemon_reload: true
 
-- name: Restart patroni
+- name: restart patroni
   ansible.builtin.systemd:
     name: patroni
     state: restarted
+  # Patroni는 db-a, db-s에만 설치되어 있으므로 안전장치 유지
   when: inventory_hostname in ['db-a', 'db-s']
-
 
 - name: Reload patroni via REST
   ansible.builtin.uri:
@@ -19,4 +25,3 @@
   register: patroni_reload_result
   failed_when: false
   changed_when: true
-

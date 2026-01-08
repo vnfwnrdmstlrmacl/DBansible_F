@@ -1,4 +1,19 @@
 ---
+# 1. etcd 바이너리 다운로드 (각 노드별로 수행)
+- name: Download etcd binary archive
+  ansible.builtin.get_url:
+    url: "https://github.com/etcd-io/etcd/releases/download/{{ etcd_version }}/etcd-{{ etcd_version }}-linux-amd64.tar.gz"
+    dest: "/tmp/etcd-{{ etcd_version }}-linux-amd64.tar.gz"
+    mode: '0644'
+
+# 2. 압축 해제
+- name: Unarchive etcd binary
+  ansible.builtin.unarchive:
+    src: "/tmp/etcd-{{ etcd_version }}-linux-amd64.tar.gz"
+    dest: "/tmp/"
+    remote_src: true
+
+# 3. 바이너리 설치 (기존 코드)
 - name: Install etcd binaries (etcd + etcdctl)
   ansible.builtin.copy:
     src: "/tmp/etcd-{{ etcd_version }}-linux-amd64/{{ item }}"
@@ -28,7 +43,6 @@
     - /var/lib/etcd
 
 # (선택) 초기 구축 단계에서만 데이터 디렉토리 클린업
-# 운영 전환 이후엔 절대 true로 두지 마세요.
 - name: Clear etcd data dir (bootstrap only)
   ansible.builtin.file:
     path: /var/lib/etcd
@@ -71,4 +85,3 @@
     name: etcd
     state: started
     enabled: true
-
