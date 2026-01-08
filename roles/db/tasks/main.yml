@@ -6,5 +6,7 @@
 - import_tasks: postgres.yml
 - import_tasks: patroni.yml
 - import_tasks: pgbackrest.yml
+  when: backup_enable | bool
+
 - import_tasks: validate.yml
 

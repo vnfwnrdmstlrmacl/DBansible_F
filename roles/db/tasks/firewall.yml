@@ -27,3 +27,12 @@
     immediate: true
     state: enabled
 
+# NFSv4 (2049/tcp) - DB 대역만 허용
+- name: Allow NFSv4 port from DB subnet
+  ansible.posix.firewalld:
+    zone: public
+    rich_rule: 'rule family="ipv4" source address="10.2.3.0/24" port port="2049" protocol="tcp" accept'
+    permanent: true
+    immediate: true
+    state: enabled
+

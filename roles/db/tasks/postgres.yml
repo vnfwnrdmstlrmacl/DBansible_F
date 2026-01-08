@@ -13,3 +13,39 @@
     enabled: false
   ignore_errors: true
 
+# ================================
+# PostgreSQL runtime preparation
+# ================================
+
+- name: Create PostgreSQL data directory for Patroni
+  file:
+    path: "{{ patroni_pg_data_dir }}"
+    state: directory
+    owner: postgres
+    group: postgres
+    mode: '0700'
+
+- name: Create PostgreSQL log directory
+  file:
+    path: "{{ patroni_pg_log_dir }}"
+    state: directory
+    owner: postgres
+    group: postgres
+    mode: '0755'
+
+- name: Check if PostgreSQL data directory already initialized
+  stat:
+    path: "{{ patroni_pg_data_dir }}/PG_VERSION"
+  register: pgdata_initialized
+
+- name: Initialize PostgreSQL database (initdb)
+  command: >
+    /usr/bin/initdb
+    -D {{ patroni_pg_data_dir }}
+    --encoding=UTF8
+    --locale=C
+  become: true
+  become_user: postgres
+  when:
+    - inventory_hostname == 'db-a'
+    - not pgdata_initialized.stat.exists

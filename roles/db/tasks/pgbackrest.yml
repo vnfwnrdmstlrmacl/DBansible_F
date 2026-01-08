@@ -1,6 +1,32 @@
 ---
 # db-b 전용: pgBackRest + NFS repo mount + 스케줄
+# - NFS 마운트 헬퍼(/sbin/mount.nfs)는 nfs-utils에 포함
+# - pgbackrest는 EL9(CentOS Stream 9)에서 EPEL/CRB에 없을 수 있어 PGDG로 fallback
 
+- name: Install base packages for backup (db-b only)
+  ansible.builtin.dnf:
+    name:
+      - nfs-utils
+      - curl
+      - ca-certificates
+    state: present
+  when: inventory_hostname == 'db-b'
+
+- name: Verify mount.nfs helper exists (db-b only)
+  ansible.builtin.stat:
+    path: /sbin/mount.nfs
+  register: mount_nfs_helper
+  changed_when: false
+  when: inventory_hostname == 'db-b'
+
+- name: Fail if NFS helper missing (db-b only)
+  ansible.builtin.fail:
+    msg: "NFS mount helper /sbin/mount.nfs not found. nfs-utils must be installed successfully."
+  when:
+    - inventory_hostname == 'db-b'
+    - not mount_nfs_helper.stat.exists
+
+# repo helper는 있어도 되고 없어도 되지만, PGDG/EPEL 관련 처리에 유용
 - name: Install repo helper packages (db-b only)
   ansible.builtin.dnf:
     name:
@@ -8,11 +34,10 @@
     state: present
   when: inventory_hostname == 'db-b'
 
-# EL9 계열에서 EPEL 패키지 의존성 때문에 CRB가 필요한 경우가 많음
 - name: Enable CRB repo (db-b only)
   ansible.builtin.command: dnf config-manager --set-enabled crb
   register: crb_enable
-  changed_when: "'enabled' in (crb_enable.stdout | lower) or crb_enable.rc == 0"
+  changed_when: false
   failed_when: false
   when: inventory_hostname == 'db-b'
 
@@ -27,14 +52,43 @@
     update_cache: true
   when: inventory_hostname == 'db-b'
 
-- name: Install pgBackRest and NFS utilities (db-b only)
+# 1차: 현재 repo(EPEL/CRB 포함)에서 pgbackrest 설치 시도
+- name: Try install pgBackRest from current repos (db-b only)
   ansible.builtin.dnf:
     name:
-      - nfs-utils
       - pgbackrest
     state: present
+  register: pgbr_try
+  failed_when: false
   when: inventory_hostname == 'db-b'
 
+# 실패하면(Package 없음 등) PGDG repo를 추가해서 재시도
+- name: Install PGDG repo rpm if pgBackRest not available (db-b only)
+  ansible.builtin.dnf:
+    name: "https://download.postgresql.org/pub/repos/yum/reporpms/EL-9-x86_64/pgdg-redhat-repo-latest.noarch.rpm"
+    state: present
+    disable_gpg_check: true
+  when:
+    - inventory_hostname == 'db-b'
+    - pgbr_try is failed or ('No package pgbackrest available' in (pgbr_try.msg | default('')))
+
+- name: Refresh dnf cache after PGDG repo (db-b only)
+  ansible.builtin.dnf:
+    update_cache: true
+  when:
+    - inventory_hostname == 'db-b'
+    - pgbr_try is failed or ('No package pgbackrest available' in (pgbr_try.msg | default('')))
+
+- name: Install pgBackRest from PGDG (db-b only)
+  ansible.builtin.dnf:
+    name:
+      - pgbackrest
+    state: present
+  when:
+    - inventory_hostname == 'db-b'
+    - pgbr_try is failed or ('No package pgbackrest available' in (pgbr_try.msg | default('')))
+
+# NFS 마운트/설정
 - name: Create mount point (db-b only)
   ansible.builtin.file:
     path: "{{ nfs_mount }}"
@@ -47,8 +101,15 @@
     path: "{{ nfs_mount }}"
     src: "{{ nfs_server }}:{{ nfs_export }}"
     fstype: nfs
-    opts: "rw,_netdev"
+    opts: "rw,_netdev,vers=4.1"
     state: mounted
+  when: inventory_hostname == 'db-b'
+
+- name: Ensure /etc/pgbackrest exists (db-b only)
+  ansible.builtin.file:
+    path: /etc/pgbackrest
+    state: directory
+    mode: "0755"
   when: inventory_hostname == 'db-b'
 
 - name: Render pgbackrest config (db-b only)
@@ -64,6 +125,6 @@
     name: "pgBackRest Full Backup"
     minute: "0"
     hour: "1"
-    job: "pgbackrest --stanza=main --type=full backup"
+    job: "pgbackrest --stanza={{ pgbackrest_stanza | default('main') }} --type=full backup"
   when: inventory_hostname == 'db-b'
 

@@ -1,14 +1,16 @@
-scope: {{ patroni_scope }}
-namespace: {{ patroni_namespace }}
-name: {{ inventory_hostname }}
+scope: "{{ patroni_scope }}"
+namespace: "{{ patroni_namespace | default('/service/') }}"
+name: "{{ inventory_hostname }}"
 
 restapi:
-  listen: 0.0.0.0:{{ patroni_rest_port }}
-  connect_address: {{ db_nodes[inventory_hostname].ip }}:{{ patroni_rest_port }}
+  listen: "{{ ansible_host }}:8008"
+  connect_address: "{{ ansible_host }}:8008"
 
-etcd:
-  hosts: "{{ etcd_hosts }}"
-
+etcd3:
+  hosts:
+{% for h in etcd_endpoints %}
+    - "{{ h }}"
+{% endfor %}
 
 bootstrap:
   dcs:
@@ -24,21 +26,39 @@ bootstrap:
         hot_standby: "on"
         max_wal_senders: 10
         max_replication_slots: 10
+        wal_keep_size: 256MB
+
   initdb:
     - encoding: UTF8
-    - data-checksums
+    - locale: C
+
+  pg_hba:
+    - "host all all 0.0.0.0/0 md5"
+    - "host replication {{ patroni_replication_user }} 0.0.0.0/0 md5"
+
+  users:
+    {{ patroni_superuser }}:
+      password: "{{ patroni_superuser_password }}"
+      options:
+        - createrole
+        - createdb
+    {{ patroni_replication_user }}:
+      password: "{{ patroni_replication_password }}"
+      options:
+        - replication
 
 postgresql:
-  listen: 0.0.0.0:{{ pg_port }}
-  connect_address: {{ db_nodes[inventory_hostname].ip }}:{{ pg_port }}
-  data_dir: /var/lib/pgsql/data
+  listen: "0.0.0.0:5432"
+  connect_address: "{{ ansible_host }}:5432"
+  data_dir: "{{ patroni_pg_data_dir }}"
+  bin_dir: "{{ patroni_pg_bin_dir }}"
   authentication:
     superuser:
-      username: {{ pg_superuser }}
-      password: {{ pg_superpass }}
+      username: "{{ patroni_superuser }}"
+      password: "{{ patroni_superuser_password }}"
     replication:
-      username: {{ replication_user }}
-      password: {{ replication_pass }}
+      username: "{{ patroni_replication_user }}"
+      password: "{{ patroni_replication_password }}"
   parameters:
     unix_socket_directories: "/var/run/postgresql"
 
