@@ -1,0 +1,12 @@
+---
+# 1. StorageVM에서 NFS 공유 설정 수행
+- import_tasks: nfs_setup.yml
+  when: inventory_hostname == 'storageVM'
+
+# 2. DB-B에서 백업 스크립트 배포 및 크론 등록 수행
+- import_tasks: db_backup_cron.yml
+  when: inventory_hostname == 'db-b'
+
+# 3. 모든 설정 후 Proxy1에서 VMware 스냅샷 실행
+#- import_tasks: vmware_snap.yml
+#  when: inventory_hostname == 'db-b'

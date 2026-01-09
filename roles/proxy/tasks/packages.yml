@@ -4,6 +4,9 @@
       - haproxy
       - keepalived
       - curl
+      - epel-release
+      - python3
+      - python3-pip
     state: present
 
 - name: Enable services
@@ -14,3 +17,8 @@
     - haproxy
     - keepalived
 
+- name: vCenter 통신 라이브러리 설치 (Proxy1 로컬)
+  ansible.builtin.pip:
+    name: pyvmomi
+    state: present
+  become: yes

@@ -1,0 +1,27 @@
+---
+- name: NFS 클라이언트 패키지 설치
+  package:  # apt 대신 package 사용
+    name: "{{ (ansible_os_family == 'RedHat') | ternary('nfs-utils', 'nfs-common') }}"
+    state: present
+- name: 마운트 포인트 생성
+  file: path="{{ local_mount_path }}" state=directory
+
+- name: StorageVM과 NFS 연결
+  mount:
+    path: "{{ local_mount_path }}"
+    src: "{{ storage_ip }}:{{ nfs_export_path }}"
+    fstype: nfs
+    state: mounted
+
+- name: 백업 스크립트 배포
+  template:
+    src: db_backup.sh.j2
+    dest: /usr/local/bin/db_backup.sh
+    mode: '0755'
+
+- name: 일일 백업 크론 등록 (03:00)
+  cron:
+    name: "Daily DB and etcd backup"
+    hour: "3"
+    minute: "0"
+    job: "/usr/local/bin/db_backup.sh >> /var/log/db_backup.log 2>&1"
