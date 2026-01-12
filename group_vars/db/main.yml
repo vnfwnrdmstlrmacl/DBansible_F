@@ -15,7 +15,7 @@ svc_vip: "10.2.2.254"
 
 # storage1 정적 라우트(문서 7번)
 storage_host: "storage1"
-storage_ip: "10.2.2.30"          # 실제 storage1 IP로 수정
+storage_ip: "10.2.3.30"          # 실제 storage1 IP로 수정
 storage_needs_route: true
 
 # -----------------------------

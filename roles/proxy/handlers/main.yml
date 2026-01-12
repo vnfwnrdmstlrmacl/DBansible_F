@@ -1,4 +1,15 @@
 ---
+- name: restart iptables
+  ansible.builtin.service:
+    name: iptables
+    state: restarted
+
+- name: restart ip6tables
+  ansible.builtin.service:
+    name: ip6tables
+    state: restarted
+  ignore_errors: true
+
 - name: restart haproxy
   ansible.builtin.service:
     name: haproxy
