@@ -1,4 +1,10 @@
 ---
+# roles/db/tasks/patroni.yml
+# - Patroni 설치(pip)
+# - patroni.yml 렌더링
+# - systemd unit 렌더링
+# - patroni 기동
+
 - name: Install Patroni dependencies
   ansible.builtin.dnf:
     name:
@@ -7,6 +13,7 @@
       - gcc
       - python3-devel
       - libpq-devel
+      - curl
     state: present
 
 - name: Upgrade pip tooling
@@ -18,7 +25,7 @@
     executable: pip3
     state: latest
 
-# (중요) v2 client가 깔려있으면 Patroni가 etcd(v2)로 붙는 경우가 흔함 → 제거
+# v2 client 제거 (Patroni가 실수로 etcd v2로 붙는 경우 방지)
 - name: Remove python-etcd (v2 client) if present
   ansible.builtin.pip:
     name:
@@ -28,7 +35,7 @@
     state: absent
   ignore_errors: true
 
-# (중요) Patroni를 etcd3 스택으로 설치
+# Patroni(etcd3) 설치
 - name: Install Patroni with etcd3 support
   ansible.builtin.pip:
     name:
@@ -39,6 +46,7 @@
     executable: pip3
     state: latest
 
+# patroni.yml 렌더링 (postgres가 읽을 수 있어야 함)
 - name: Ensure /etc/patroni.yml permissions (readable by postgres)
   ansible.builtin.file:
     path: /etc/patroni.yml
@@ -55,25 +63,17 @@
     group: postgres
     mode: "0640"
 
+# systemd unit (템플릿 사용 권장: templates/patroni.service.j2)
 - name: Render systemd unit for patroni
-  ansible.builtin.copy:
+  ansible.builtin.template:
+    src: patroni.service.j2
     dest: /etc/systemd/system/patroni.service
+    owner: root
+    group: root
     mode: "0644"
-    content: |
-      [Unit]
-      Description=Patroni PostgreSQL HA Cluster
-      After=network.target
-
-      [Service]
-      Type=simple
-      User=postgres
-      ExecStart=/usr/local/bin/patroni /etc/patroni.yml
-      Restart=on-failure
-      RestartSec=3
-      LimitNOFILE=65536
-
-      [Install]
-      WantedBy=multi-user.target
+  notify:
+    - reload systemd
+    - restart patroni
 
 - name: systemd daemon-reload
   ansible.builtin.systemd:
@@ -82,11 +82,11 @@
 - name: Enable and start patroni (db-a, db-s only)
   ansible.builtin.systemd:
     name: patroni
-    state: restarted
+    state: started
     enabled: true
   when: inventory_hostname in ['db-a', 'db-s']
 
-# 8008 wait_for로 막히지 말고 "실패시 로그를 보여주고 fail"로 가자 (디버깅/재실행-friendly)
+# 디버깅-friendly: active 아니면 로그 뽑고 fail
 - name: Check patroni service is active (db-a, db-s only)
   ansible.builtin.command: systemctl is-active patroni
   register: patroni_active
@@ -95,7 +95,7 @@
   when: inventory_hostname in ['db-a', 'db-s']
 
 - name: Dump patroni journal (db-a, db-s only)
-  ansible.builtin.command: journalctl -u patroni -n 120 --no-pager
+  ansible.builtin.command: journalctl -u patroni -n 200 --no-pager
   register: patroni_journal
   changed_when: false
   failed_when: false
@@ -107,20 +107,9 @@
       Patroni is not active on {{ inventory_hostname }}.
       is-active: {{ patroni_active.stdout | default('') }}
 
-      --- journalctl -u patroni (last 120) ---
+      --- journalctl -u patroni (last 200) ---
       {{ patroni_journal.stdout | default('') }}
   when:
     - inventory_hostname in ['db-a', 'db-s']
     - patroni_active.stdout != "active"
-
-- name: Best-effort- check Patroni REST health locally (db-a, db-s only)
-  ansible.builtin.shell: "curl -s -m 2 http://127.0.0.1:8008/health || true"
-  register: patroni_health
-  changed_when: false
-  when: inventory_hostname in ['db-a', 'db-s']
-
-- name: Show Patroni REST health (db-a, db-s only)
-  ansible.builtin.debug:
-    msg: "{{ patroni_health.stdout | default('') }}"
-  when: inventory_hostname in ['db-a', 'db-s']
 

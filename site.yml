@@ -16,6 +16,26 @@
   roles:
     - proxy
 
+- name: Build DB (etcd)
+  hosts: etcd
+  gather_facts: true
+  become: true
+  pre_tasks:
+    - name: Load DB non-secret vars
+      ansible.builtin.include_vars:
+        file: "{{ playbook_dir }}/group_vars/db/main.yml"
+
+    - name: Load DB secret vars (vault)
+      ansible.builtin.include_vars:
+        file: "{{ db_vault_vars_file }}"
+
+
+  tasks:
+    - import_role:
+        name: db
+        tasks_from: etcd.yml
+      tags: ['etcd']
+
 
 - name: Build DB (PostgreSQL / Patroni / etcd / Backup)
   hosts: db
@@ -35,7 +55,16 @@
   roles:
     - db
 
-- hosts: all
-  become: yes
+- hosts: backup_target
+  become: true
+  pre_tasks:
+    - name: Load DB non-secret vars
+      ansible.builtin.include_vars:
+        file: "{{ playbook_dir }}/group_vars/db/main.yml"
+
+    - name: Load DB secret vars (vault)
+      ansible.builtin.include_vars:
+        file: "{{ db_vault_vars_file }}"
+
   roles:
     - backup

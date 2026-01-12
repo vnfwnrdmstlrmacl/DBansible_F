@@ -49,9 +49,9 @@ etcd_peer_port: 2380
 
 # etcd endpoints (Patroni 템플릿에서 직접 사용) - 리스트 형태
 etcd_endpoints:
-  - "10.2.3.2:2379"
-  - "10.2.3.3:2379"
-  - "10.2.3.4:2379"
+  - "10.2.3.20:2379"
+  - "10.2.3.21:2379"
+  - "10.2.3.22:2379"
 
 # (호환성 유지용)
 patroni_etcd_endpoints: "10.2.3.2:2379,10.2.3.3:2379,10.2.3.4:2379"
@@ -59,9 +59,10 @@ etcd:
   hosts: "{{ patroni_etcd_endpoints }}"
 
 # etcd 버전(바이너리 설치 시 사용)
-etcd_version: "v3.5.12"
-etcd_download_url: "https://github.com/etcd-io/etcd/releases/download/{{ etcd_version }}/etcd-{{ etcd_version }}-linux-amd64.tar.gz"
 # etcd_bootstrap_reset: true
+etcd_version: "v3.5.12"
+etcd_download_url: "https://storage.googleapis.com/etcd/v3.5.12/etcd-v3.5.12-linux-amd64.tar.gz"
+
 
 # -----------------------------
 # DB 노드 식별(호스트명과 매핑)

@@ -1,1 +1,2 @@
-{{ db_nodes['db-a'].ip }}:{{ pg_port }}:replication:{{ replication_user }}:{{ replication_pass }}
+{{ hostvars['db-a'].ansible_host }}:5432:*:{{ replication_user }}:{{ replication_pass }}
+

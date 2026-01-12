@@ -1,19 +1,19 @@
-# /etc/etcd/etcd.conf  (YAML format)
-
 name: "{{ inventory_hostname }}"
 data-dir: "/var/lib/etcd"
 
-listen-peer-urls: "http://{{ db_nodes[inventory_hostname].ip }}:{{ etcd_peer_port }}"
-listen-client-urls: "http://{{ db_nodes[inventory_hostname].ip }}:{{ etcd_client_port }},http://127.0.0.1:{{ etcd_client_port }}"
+{% set ip = hostvars[inventory_hostname].ansible_host | default(ansible_default_ipv4.address) %}
 
-initial-advertise-peer-urls: "http://{{ db_nodes[inventory_hostname].ip }}:{{ etcd_peer_port }}"
-advertise-client-urls: "http://{{ db_nodes[inventory_hostname].ip }}:{{ etcd_client_port }}"
+listen-peer-urls: "http://{{ ip }}:2380"
+listen-client-urls: "http://{{ ip }}:2379,http://127.0.0.1:2379"
 
-initial-cluster-token: "etcd-patroni"
-initial-cluster-state: "new"
-initial-cluster: "{% for h, v in db_nodes.items() -%}{{ h }}=http://{{ v.ip }}:{{ etcd_peer_port }}{% if not loop.last %},{% endif %}{%- endfor %}"
+initial-advertise-peer-urls: "http://{{ ip }}:2380"
+advertise-client-urls: "http://{{ ip }}:2379"
 
-# 안정성 옵션(권장)
-heartbeat-interval: 100
-election-timeout: 1000
+initial-cluster-token: "{{ etcd_initial_cluster_token | default('etcd-cluster-1') }}"
+initial-cluster-state: "{{ etcd_initial_cluster_state | default('new') }}"
+
+initial-cluster: "{% for h in groups['etcd'] %}{{ h }}=http://{{ hostvars[h].ansible_host | default(hostvars[h].ansible_default_ipv4.address) }}:2380{% if not loop.last %},{% endif %}{% endfor %}"
+
+enable-v2: false
+log-level: "info"
 

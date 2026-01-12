@@ -1,13 +1,30 @@
 ---
+# roles/db/tasks/main.yml
+
 - import_tasks: packages.yml
 - import_tasks: network.yml
 - import_tasks: firewall.yml
+
+# -------------------------------
+# ETCD nodes only
+# -------------------------------
 - import_tasks: etcd.yml
-- import_tasks: postgres.yml  # <--- 여기서 pgpass가 생성됨
-- import_tasks: patroni.yml   # <--- 여기서 Patroni가 뜨면서 pgpass를 읽음
-- import_tasks: pg_hba.yml
-  when: inventory_hostname == 'db-a'
+  when: inventory_hostname in groups.get('etcd', [])
+
+# -------------------------------
+# DB nodes only (PostgreSQL/Patroni)
+# -------------------------------
+- import_tasks: postgres.yml
+  when: inventory_hostname in groups.get('db', [])
+
+- import_tasks: patroni.yml
+  when: inventory_hostname in groups.get('db', [])
+
+
+# (선택) 기타 구성들
 - import_tasks: pgbackrest.yml
-  when: backup_enable | bool
+  when: inventory_hostname in groups.get('db', [])
 
 - import_tasks: validate.yml
+  when: inventory_hostname in groups.get('db', [])
+
