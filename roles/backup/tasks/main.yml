@@ -1,7 +1,13 @@
 ---
 # 1. StorageVM에서 NFS 공유 설정 수행
-- import_tasks: nfs_setup.yml
+#- import_tasks: nfs_setup.yml
+#  when: inventory_hostname == 'storageVM'
+- import_tasks: nfs_server.yml
   when: inventory_hostname == 'storageVM'
+
+- import_tasks: nfs_client.yml
+  when : inventory_hostname == 'db-b'
+
 
 # 2. DB-B에서 백업 스크립트 배포 및 크론 등록 수행
 - import_tasks: db_backup_cron.yml
