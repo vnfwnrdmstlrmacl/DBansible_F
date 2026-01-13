@@ -1,56 +1,37 @@
 #!/bin/bash
+set -euo pipefail
 
-# 1. 환경 변수 설정 (명령어 경로 인식 보장)
 export PATH=$PATH:/usr/local/bin:/usr/bin:/bin
-export DATE=$(date +%Y%m%d_%H%M%S)
-export BACKUP_DIR="{{ local_mount_path }}"
-export RETENTION_COUNT={{ backup_retention_count }}
-
-# 로그 파일 설정
 LOG_FILE="/var/log/db_backup.log"
 
 exec > >(tee -a $LOG_FILE) 2>&1
 
+BACKUP_DIR="{{ local_mount_path }}"
+STANZA="{{ pgbackrest_stanza }}"
+TYPE="full"
+
 echo "-------------------------------------------"
 echo "시작 시간: $(date)"
-echo "작업 대상 폴더: $BACKUP_DIR"
+echo "작업 대상(Repo): $BACKUP_DIR"
+echo "백업 방식: pgBackRest physical backup (type=$TYPE)"
+echo "-------------------------------------------"
 
-# 2. 마운트 상태 점검 (마운트가 안 되어 있으면 중단하여 로컬 디스크 풀 방지)
+# 1) 마운트 상태 점검
 if ! mountpoint -q "$BACKUP_DIR"; then
-    echo "에러: $BACKUP_DIR 이 마운트되어 있지 않습니다. 백업을 중단합니다."
-    exit 1
+  echo "에러: $BACKUP_DIR 이 마운트되어 있지 않습니다. 백업 중단."
+  exit 1
 fi
 
-# 3. PostgreSQL 전체 백업
-# .pgpass 파일이 /var/lib/postgresql/ 또는 해당 유저 홈에 있어야 함
-echo "PostgreSQL 백업 중..."
-pg_dumpall -U postgres > ${BACKUP_DIR}/pg_backup_${DATE}.sql
+# 2) pgBackRest Full 백업 실행 (postgres 계정으로 수행 권장)
+echo "[1/2] pgBackRest Full 백업 시작..."
+sudo -u postgres pgbackrest --stanza="$STANZA" backup --type="$TYPE"
 
-if [ $? -eq 0 ]; then
-    echo "PostgreSQL 백업 성공"
-else
-    echo "PostgreSQL 백업 실패"
-fi
+echo "[1/2] pgBackRest Full 백업 완료."
 
-# 4. etcd 스냅샷 백업
-echo "etcd 백업 중..."
-ETCDCTL_API=3 etcdctl snapshot save ${BACKUP_DIR}/etcd_snapshot_${DATE}.db
-
-# 5. 오래된 파일 삭제 (7개 유지 로직)
-FILE_COUNT=$(ls -1 ${BACKUP_DIR}/pg_backup_*.sql | wc -l)
-
-if [ "$FILE_COUNT" -gt "$RETENTION_COUNT" ]; then
-    echo "파일 개수($FILE_COUNT)가 초과되어 가장 오래된 백업을 삭제합니다."
-    
-    # 오래된 순(tr)으로 정렬하여 첫 번째 파일 추출
-    OLDEST_PG=$(ls -1tr ${BACKUP_DIR}/pg_backup_*.sql | head -n 1)
-    OLDEST_ETCD=$(ls -1tr ${BACKUP_DIR}/etcd_snapshot_*.db | head -n 1)
-    
-    rm -f "$OLDEST_PG"
-    rm -f "$OLDEST_ETCD"
-    
-    echo "삭제 완료: $OLDEST_PG, $OLDEST_ETCD"
-fi
+# 3) etcd 스냅샷 (기존 유지)
+echo "[2/2] etcd 백업 중..."
+ETCDCTL_API=3 etcdctl snapshot save ${BACKUP_DIR}/etcd_snapshot_$(date +%Y%m%d_%H%M%S).db
 
 echo "종료 시간: $(date)"
 echo "-------------------------------------------"
+

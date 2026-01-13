@@ -7,8 +7,8 @@
     state: present
   when: proxy_nat_use_iptables_services | bool
 
-- name: Enable IPv4 forwarding (runtime + persistent)
-  ansible.posix.sysctl:
+- name: Enable IPv4 forwarding (runtime, persistent)
+  sysctl:
     name: net.ipv4.ip_forward
     value: "1"
     state: present
