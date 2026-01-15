@@ -1,0 +1,29 @@
+---
+# roles/dbT/tasks/60_grants.yml
+
+- name: Grant minimal privileges to API role
+  community.postgresql.postgresql_query:
+    db: "{{ app_db_name }}"
+    login_host: 127.0.0.1
+    port: "{{ pg_port }}"
+    login_user: "{{ patroni_superuser }}"
+    login_password: "{{ patroni_superuser_password }}"
+    query: |
+      GRANT CONNECT ON DATABASE {{ app_db_name }} TO {{ api_db_user }};
+      GRANT USAGE ON SCHEMA {{ app_schema }} TO {{ api_db_user }};
+
+      GRANT SELECT, INSERT, UPDATE, DELETE
+        ON ALL TABLES IN SCHEMA {{ app_schema }}
+        TO {{ api_db_user }};
+
+      GRANT USAGE, SELECT, UPDATE
+        ON ALL SEQUENCES IN SCHEMA {{ app_schema }}
+        TO {{ api_db_user }};
+
+      ALTER DEFAULT PRIVILEGES FOR ROLE {{ patroni_superuser }} IN SCHEMA {{ app_schema }}
+        GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO {{ api_db_user }};
+
+      ALTER DEFAULT PRIVILEGES FOR ROLE {{ patroni_superuser }} IN SCHEMA {{ app_schema }}
+        GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO {{ api_db_user }};
+  when: patroni_is_primary | bool
+

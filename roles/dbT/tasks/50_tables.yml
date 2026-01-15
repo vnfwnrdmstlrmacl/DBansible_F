@@ -1,0 +1,87 @@
+---
+# roles/dbT/tasks/50_tables.yml
+
+- name: Create energy tables (idempotent)
+  community.postgresql.postgresql_query:
+    db: "{{ app_db_name }}"
+    login_host: 127.0.0.1
+    port: "{{ pg_port }}"
+    login_user: "{{ patroni_superuser }}"
+    login_password: "{{ patroni_superuser_password }}"
+    query: |
+      CREATE TABLE IF NOT EXISTS {{ app_schema }}.national_household_electric_daily (
+        day_date              date PRIMARY KEY,
+        kwh_per_household     numeric(18,6) NOT NULL,
+        source_name           text,
+        raw_payload           jsonb,
+        collected_at          timestamptz NOT NULL DEFAULT now()
+      );
+
+      CREATE TABLE IF NOT EXISTS {{ app_schema }}.region_electric_monthly (
+        sido_code             text NOT NULL,
+        month_ym              char(7) NOT NULL,
+        total_kwh             numeric(20,6),
+        avg_daily_kwh         numeric(20,6),
+        peak_hour             smallint,
+        mom_change_pct        numeric(10,4),
+        source_name           text,
+        raw_payload           jsonb,
+        collected_at          timestamptz NOT NULL DEFAULT now(),
+        PRIMARY KEY (sido_code, month_ym)
+      );
+
+      CREATE TABLE IF NOT EXISTS {{ app_schema }}.region_electric_daily (
+        sido_code             text NOT NULL,
+        day_date              date NOT NULL,
+        total_kwh             numeric(20,6),
+        peak_hour             smallint,
+        mom_change_pct        numeric(10,4),
+        source_name           text,
+        raw_payload           jsonb,
+        collected_at          timestamptz NOT NULL DEFAULT now(),
+        PRIMARY KEY (sido_code, day_date)
+      );
+
+      CREATE TABLE IF NOT EXISTS {{ app_schema }}.region_gas_monthly (
+        sido_code             text NOT NULL,
+        month_ym              char(7) NOT NULL,
+        total_m3              numeric(20,6),
+        avg_daily_m3          numeric(20,6),
+        mom_change_pct        numeric(10,4),
+        source_name           text,
+        raw_payload           jsonb,
+        collected_at          timestamptz NOT NULL DEFAULT now(),
+        PRIMARY KEY (sido_code, month_ym)
+      );
+
+      CREATE TABLE IF NOT EXISTS {{ app_schema }}.national_electric_monthly (
+        month_ym              char(7) PRIMARY KEY,
+        total_kwh             numeric(20,6),
+        avg_daily_kwh         numeric(20,6),
+        peak_hour             smallint,
+        mom_change_pct        numeric(10,4),
+        source_name           text,
+        raw_payload           jsonb,
+        collected_at          timestamptz NOT NULL DEFAULT now()
+      );
+
+      CREATE TABLE IF NOT EXISTS {{ app_schema }}.national_gas_monthly (
+        month_ym              char(7) PRIMARY KEY,
+        total_m3              numeric(20,6),
+        avg_daily_m3          numeric(20,6),
+        mom_change_pct        numeric(10,4),
+        source_name           text,
+        raw_payload           jsonb,
+        collected_at          timestamptz NOT NULL DEFAULT now()
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_region_electric_daily_day
+        ON {{ app_schema }}.region_electric_daily (day_date);
+
+      CREATE INDEX IF NOT EXISTS idx_region_electric_monthly_month
+        ON {{ app_schema }}.region_electric_monthly (month_ym);
+
+      CREATE INDEX IF NOT EXISTS idx_region_gas_monthly_month
+        ON {{ app_schema }}.region_gas_monthly (month_ym);
+  when: patroni_is_primary | bool
+

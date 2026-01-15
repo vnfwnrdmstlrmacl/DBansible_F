@@ -1,0 +1,14 @@
+---
+- import_tasks: 00_detect_patroni.yml
+
+- import_tasks: 10_packages.yml
+
+- import_tasks: 20_api_role.yml
+
+- import_tasks: 30_database.yml
+
+- import_tasks: 40_schema.yml
+
+- import_tasks: 50_tables.yml
+
+- import_tasks: 60_grants.yml

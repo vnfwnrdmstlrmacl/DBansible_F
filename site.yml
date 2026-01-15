@@ -1,4 +1,7 @@
 ---
+###############################################################################
+# 1. Proxy (HA / LB / Router)
+###############################################################################
 - name: Build Proxy (HA / LB / Router)
   hosts: proxy
   gather_facts: true
@@ -16,10 +19,17 @@
   roles:
     - proxy
 
-- name: Build DB (etcd)
+  tags: ['proxy']
+
+
+###############################################################################
+# 2. etcd cluster
+###############################################################################
+- name: Build etcd cluster
   hosts: etcd
   gather_facts: true
   become: true
+
   pre_tasks:
     - name: Load DB non-secret vars
       ansible.builtin.include_vars:
@@ -29,15 +39,24 @@
       ansible.builtin.include_vars:
         file: "{{ db_vault_vars_file }}"
 
-
   tasks:
+    - import_role:
+        name: db
+        tasks_from: firewall.yml
+      tags: ['firewall', 'etcd']
+
     - import_role:
         name: db
         tasks_from: etcd.yml
       tags: ['etcd']
 
+  tags: ['etcd']
 
-- name: Build DB (PostgreSQL / Patroni / etcd / Backup)
+
+###############################################################################
+# 3. PostgreSQL / Patroni infra (최초 1회 or 장애 시만)
+###############################################################################
+- name: Build DB Infra (PostgreSQL / Patroni)
   hosts: db
   serial: 1
   gather_facts: true
@@ -55,8 +74,17 @@
   roles:
     - db
 
-- hosts: backup_target
+  tags: ['db_infra']
+
+
+###############################################################################
+# 4. Backup node / storage
+###############################################################################
+- name: Build Backup / Storage
+  hosts: backup_target
+  gather_facts: true
   become: true
+
   pre_tasks:
     - name: Load DB non-secret vars
       ansible.builtin.include_vars:
@@ -68,3 +96,29 @@
 
   roles:
     - backup
+
+  tags: ['backup']
+
+
+###############################################################################
+# 5. DB Objects (appdb / schema / tables / grants)
+###############################################################################
+- name: Build DB Objects (dbT)
+  hosts: db
+  gather_facts: false
+  become: true
+
+  pre_tasks:
+    - name: Load DB non-secret vars
+      ansible.builtin.include_vars:
+        file: "{{ playbook_dir }}/group_vars/db/main.yml"
+
+    - name: Load DB secret vars (vault)
+      ansible.builtin.include_vars:
+        file: "{{ db_vault_vars_file }}"
+
+  roles:
+    - dbT
+
+  tags: ['dbT']
+

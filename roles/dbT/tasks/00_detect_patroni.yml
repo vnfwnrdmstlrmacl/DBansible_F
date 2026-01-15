@@ -1,0 +1,31 @@
+---
+# roles/dbT/tasks/00_detect_patroni.yml
+# 목적: Patroni REST가 아니라 PostgreSQL로 "Primary 여부"를 확정한다.
+#      (Primary에서만 DB/Schema/Table 생성 수행)
+
+- name: Detect primary by querying PostgreSQL (pg_is_in_recovery)
+  ansible.builtin.command: >
+    psql -h 127.0.0.1 -p {{ pg_port | default(5432) }}
+    -U {{ patroni_superuser | default('postgres') }}
+    -tAc "SELECT CASE WHEN pg_is_in_recovery() THEN 'replica' ELSE 'primary' END;"
+  register: pg_role_check
+  changed_when: false
+
+- name: Set patroni_role fact based on pg_is_in_recovery
+  ansible.builtin.set_fact:
+    patroni_role: "{{ (pg_role_check.stdout | trim) }}"
+  changed_when: false
+
+- name: Set patroni_is_primary fact
+  ansible.builtin.set_fact:
+    patroni_is_primary: "{{ (patroni_role | lower) == 'primary' }}"
+  changed_when: false
+
+- name: Debug primary detection
+  ansible.builtin.debug:
+    msg:
+      - "Host={{ inventory_hostname }}"
+      - "patroni_role={{ patroni_role }}"
+      - "patroni_is_primary={{ patroni_is_primary }}"
+      - "stdout={{ pg_role_check.stdout | trim }}"
+
