@@ -1,0 +1,15 @@
+---
+# OAuth 관련 테이블 권한
+
+- name: Grant OAuth table privileges to api role
+  community.postgresql.postgresql_query:
+    db: "{{ app_db_name }}"
+    query: |
+      GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE
+        {{ app_schema }}.users,
+        {{ app_schema }}.oauth_accounts,
+        {{ app_schema }}.oauth_tokens
+      TO {{ api_db_user }};
+  become_user: postgres
+  when: patroni_is_primary | bool
+
