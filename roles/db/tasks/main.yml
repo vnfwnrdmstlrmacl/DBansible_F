@@ -15,16 +15,16 @@
 # DB nodes only (PostgreSQL/Patroni)
 # -------------------------------
 - import_tasks: postgres.yml
-  when: inventory_hostname in groups.get('db', [])
+  when: inventory_hostname in groups.get('db_cluster', [])
 
 - import_tasks: patroni.yml
-  when: inventory_hostname in groups.get('db', [])
+  when: inventory_hostname in groups.get('db_cluster', [])
 
 
 # (선택) 기타 구성들
 - import_tasks: pgbackrest.yml
-  when: inventory_hostname in groups.get('db', [])
+  when: inventory_hostname in groups.get('db_cluster', [])
 
 - import_tasks: validate.yml
-  when: inventory_hostname in groups.get('db', [])
+  when: inventory_hostname in groups.get('db_cluster', [])
 
