@@ -38,16 +38,28 @@
     - rpc-bind
 
 - name: Create export directory
-  file:
-    path: "{{ nfs_export_path }}"
+  ansible.builtin.file:
+    path: "{{ backup_nfs_export_dir }}"
     state: directory
-    mode: '0777'
+    owner: root
+    group: root
+    mode: "0755"
+  when: inventory_hostname in groups['backup_server']
 
-- name: Configure /etc/exports (allow db-b only)
-  ansible.builtin.lineinfile:
-    path: /etc/exports
-    line: "{{ nfs_export_path }} {{ hostvars[groups['db-b'][0]].ansible_host }}(rw,sync,no_subtree_check)"
-    create: true
+- name: Pick backup client host (first host in backup_clients)
+  ansible.builtin.set_fact:
+    _backup_client_host: "{{ groups['backup_clients'][0] }}"
+  when: inventory_hostname in groups['backup_server']
+
+- name: Configure /etc/exports (allow backup client only)
+  ansible.builtin.template:
+    src: exports.j2
+    dest: /etc/exports
+    owner: root
+    group: root
+    mode: "0644"
+  when: inventory_hostname in groups['backup_server']
+  notify: reload nfs exports
 
 - name: Reload NFS exports
   ansible.builtin.command: exportfs -ra

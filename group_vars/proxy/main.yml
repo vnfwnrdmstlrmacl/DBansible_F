@@ -1,5 +1,7 @@
 # vault 자동 로드용 경로
 proxy_vault_vars_file: "{{ playbook_dir }}/group_vars/proxy/vault.yml"
+proxy_nat_use_iptables_services: true
+proxy_internal_cidr: "10.2.3.0/24"
 
 # OS / NIC 고정값 (문서 확정)
 proxy_external_iface: "ens160"   # 10.2.2.0/24

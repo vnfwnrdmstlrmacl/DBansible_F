@@ -7,14 +7,25 @@
     state: present
   when: proxy_nat_use_iptables_services | bool
 
-- name: Enable IPv4 forwarding (runtime, persistent)
-  sysctl:
+# firewalld와 iptables-services는 같이 쓰면 충돌 나는 경우가 많음
+- name: Disable firewalld to avoid conflicts (optional)
+  ansible.builtin.service:
+    name: firewalld
+    state: stopped
+    enabled: false
+  when:
+    - proxy_nat_use_iptables_services | bool
+    - proxy_disable_firewalld | default(true) | bool
+  ignore_errors: true
+
+- name: Enable IPv4 forwarding (runtime + persistent)
+  ansible.posix.sysctl:
     name: net.ipv4.ip_forward
     value: "1"
     state: present
     reload: true
 
-# (선택) rp_filter 완화: 멀티 NIC 라우터 환경에서 역경로 필터가 방해하면 통신이 끊길 수 있어 0으로 둠
+# 멀티 NIC 라우터에서 rp_filter가 역경로 차단을 일으킬 수 있음
 - name: Disable rp_filter (avoid asymmetric routing drops)
   ansible.posix.sysctl:
     name: "{{ item }}"
@@ -24,16 +35,18 @@
   loop:
     - net.ipv4.conf.all.rp_filter
     - net.ipv4.conf.default.rp_filter
+    - "net.ipv4.conf.{{ proxy_external_iface }}.rp_filter"
+    - "net.ipv4.conf.{{ proxy_internal_iface }}.rp_filter"
 
-- name: Deploy /etc/sysconfig/iptables
+- name: Deploy /etc/sysconfig/iptables from template
   ansible.builtin.template:
     src: iptables.j2
     dest: /etc/sysconfig/iptables
     owner: root
     group: root
     mode: "0600"
-  notify: restart iptables
   when: proxy_nat_use_iptables_services | bool
+  notify: restart iptables
 
 - name: Ensure iptables service enabled and started
   ansible.builtin.service:
@@ -42,37 +55,32 @@
     enabled: true
   when: proxy_nat_use_iptables_services | bool
 
-# IPv6는 안 쓰는 환경이면 ip6tables는 없어도 됨. 있으면 같이 켜고 싶을 때만 사용.
-- name: Ensure ip6tables service enabled and started (optional)
-  ansible.builtin.service:
-    name: ip6tables
-    state: started
-    enabled: true
-  ignore_errors: true
-  when: proxy_nat_use_iptables_services | bool
-
-# 검증(변경 없음으로 처리)
-- name: Check NAT rule (POSTROUTING)
-  ansible.builtin.command: iptables -t nat -S POSTROUTING
-  register: nat_postrouting
-  changed_when: false
-
-- name: Check FORWARD rules
-  ansible.builtin.command: iptables -S FORWARD
-  register: filter_forward
-  changed_when: false
-
-- name: Show iptables summary
-  ansible.builtin.debug:
-    msg:
-      - "POSTROUTING rules: {{ nat_postrouting.stdout }}"
-      - "FORWARD rules: {{ filter_forward.stdout }}"
-
-- name: Fail if MASQUERADE rule is missing
+# 커널에 실제로 규칙이 올라갔는지 검증 (없으면 실패)
+- name: Verify NAT MASQUERADE rule exists
   ansible.builtin.shell: |
     set -e
     iptables -t nat -S POSTROUTING | grep -q "MASQUERADE"
   args:
     executable: /bin/bash
   changed_when: false
+  when: proxy_nat_use_iptables_services | bool
 
+- name: Show NAT POSTROUTING table
+  ansible.builtin.command: iptables -t nat -nvL POSTROUTING
+  register: nat_postrouting
+  changed_when: false
+  when: proxy_nat_use_iptables_services | bool
+
+- name: Show FORWARD chain
+  ansible.builtin.command: iptables -nvL FORWARD
+  register: filter_forward
+  changed_when: false
+  when: proxy_nat_use_iptables_services | bool
+
+- name: Debug iptables summary
+  ansible.builtin.debug:
+    msg:
+      - "{{ nat_postrouting.stdout_lines }}"
+      - "{{ filter_forward.stdout_lines }}"
+  when: proxy_nat_use_iptables_services | bool
+  

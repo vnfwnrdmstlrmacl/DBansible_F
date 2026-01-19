@@ -57,7 +57,7 @@
 # 3. PostgreSQL / Patroni infra (최초 1회 or 장애 시만)
 ###############################################################################
 - name: Build DB Infra (PostgreSQL / Patroni)
-  hosts: db
+  hosts: db_cluster
   serial: 1
   gather_facts: true
   become: true
@@ -81,7 +81,7 @@
 # 4. Backup node / storage
 ###############################################################################
 - name: Build Backup / Storage
-  hosts: backup_target
+  hosts: backup_server:backup_clients
   gather_facts: true
   become: true
 
@@ -104,7 +104,7 @@
 # 5. DB Objects (appdb / schema / tables / grants)
 ###############################################################################
 - name: Build DB Objects (dbT)
-  hosts: db
+  hosts: db_cluster
   gather_facts: false
   become: true
 

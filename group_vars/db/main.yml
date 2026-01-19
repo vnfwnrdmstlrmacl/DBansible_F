@@ -48,14 +48,6 @@ etcd_client_port: 2379
 etcd_peer_port: 2380
 
 # etcd endpoints (Patroni 템플릿에서 직접 사용) - 리스트 형태
-etcd_endpoints:
-  - "10.2.3.20:2379"
-  - "10.2.3.21:2379"
-  - "10.2.3.22:2379"
-
-patroni_etcd_endpoints: "10.2.3.20:2379,10.2.3.21:2379,10.2.3.22:2379"
-etcd:
-  hosts: "{{ patroni_etcd_endpoints }}"
 # (호환성 유지용)
 
 # etcd 버전(바이너리 설치 시 사용)
