@@ -1,0 +1,86 @@
+---
+# ============================================================
+# roles/etcd/tasks/firewalld.yml
+# ============================================================
+
+# -----------------------------
+# firewalld 설치 / 실행
+# -----------------------------
+- name: Ensure firewalld installed (etcd nodes)
+  ansible.builtin.dnf:
+    name: firewalld
+    state: present
+
+- name: Ensure firewalld running (etcd nodes)
+  ansible.builtin.service:
+    name: firewalld
+    state: started
+    enabled: true
+
+# -----------------------------
+# ACTIVE zone 탐지
+# -----------------------------
+- name: Detect active firewalld zone (etcd nodes)
+  ansible.builtin.shell: |
+    set -e
+    firewall-cmd --get-active-zones | awk '
+      /^[a-zA-Z0-9_-]+$/ {zone=$1}
+      /interfaces:/ {print zone; exit}
+    '
+  register: fw_active_zone
+  changed_when: false
+
+- name: Fallback to default zone if active zone not detected
+  ansible.builtin.command: firewall-cmd --get-default-zone
+  register: fw_default_zone
+  changed_when: false
+  when: fw_active_zone.stdout | trim == ""
+
+- name: Set firewall zone fact
+  ansible.builtin.set_fact:
+    fw_zone: >-
+      {{
+        (fw_active_zone.stdout | trim)
+        if (fw_active_zone.stdout | trim) != ""
+        else (fw_default_zone.stdout | trim)
+      }}
+
+# -----------------------------
+# etcd 포트 허용
+# -----------------------------
+- name: Allow etcd ports on etcd nodes
+  ansible.posix.firewalld:
+    zone: "{{ fw_zone }}"
+    rich_rule: >-
+      rule family="ipv4"
+      source address="{{ item.1 }}"
+      port port="{{ item.0.port }}" protocol="{{ item.0.proto }}"
+      accept
+    permanent: true
+    immediate: true
+    state: enabled
+  loop: "{{ etcd_firewall_ports | subelements('sources') }}"
+  loop_control:
+    label: "{{ item.0.desc }} {{ item.0.port }}/{{ item.0.proto }} from {{ item.1 }}"
+  when: "'etcd' in group_names"
+
+# -----------------------------
+# DEBUG
+# -----------------------------
+- name: Show active firewalld zones (debug)
+  ansible.builtin.command: firewall-cmd --get-active-zones
+  register: fw_active_dump
+  changed_when: false
+
+- name: Show firewalld rules for selected zone (debug)
+  ansible.builtin.command: firewall-cmd --zone={{ fw_zone }} --list-all
+  register: fw_list_all
+  changed_when: false
+
+- name: Print firewalld debug info
+  ansible.builtin.debug:
+    msg:
+      - "Selected firewall zone: {{ fw_zone }}"
+      - "{{ fw_active_dump.stdout }}"
+      - "{{ fw_list_all.stdout }}"
+

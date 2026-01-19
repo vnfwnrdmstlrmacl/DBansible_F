@@ -8,8 +8,8 @@
 # -------------------------------
 # ETCD nodes only
 # -------------------------------
-- import_tasks: etcd.yml
-  when: inventory_hostname in groups.get('etcd', [])
+#- import_tasks: etcd.yml
+# when: inventory_hostname in groups.get('etcd', [])
 
 # -------------------------------
 # DB nodes only (PostgreSQL/Patroni)

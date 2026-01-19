@@ -33,23 +33,11 @@
   pre_tasks:
     - name: Load DB non-secret vars
       ansible.builtin.include_vars:
-        file: "{{ playbook_dir }}/group_vars/db/main.yml"
+        file: "{{ playbook_dir }}/group_vars/etcd/main.yml"
 
-    - name: Load DB secret vars (vault)
-      ansible.builtin.include_vars:
-        file: "{{ db_vault_vars_file }}"
 
-  tasks:
-    - import_role:
-        name: db
-        tasks_from: firewall.yml
-      tags: ['firewall', 'etcd']
-
-    - import_role:
-        name: db
-        tasks_from: etcd.yml
-      tags: ['etcd']
-
+  roles : 
+    - etcd
   tags: ['etcd']
 
 

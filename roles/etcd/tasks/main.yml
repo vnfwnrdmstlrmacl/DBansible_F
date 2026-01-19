@@ -1,0 +1,3 @@
+---
+- import_tasks: firewalld.yml
+- import_tasks: etcd.yml

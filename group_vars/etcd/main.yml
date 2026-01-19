@@ -1,0 +1,58 @@
+# ============================================================
+# group_vars/etcd/main.yml
+# ============================================================
+
+# -----------------------------
+# etcd 기본 포트
+# -----------------------------
+etcd_client_port: 2379
+etcd_peer_port: 2380
+
+# -----------------------------
+# etcd 버전 / 다운로드
+# -----------------------------
+etcd_version: "v3.5.12"
+etcd_download_url: "https://storage.googleapis.com/etcd/v3.5.12/etcd-v3.5.12-linux-amd64.tar.gz"
+
+# -----------------------------
+# etcd 경로
+# -----------------------------
+etcd_bin_dir: "/usr/local/bin"
+etcd_data_dir: "/var/lib/etcd"
+
+# -----------------------------
+# etcd 클러스터 식별
+# -----------------------------
+etcd_cluster_token: "etcd-ha"
+
+# systemd 템플릿에서 사용
+etcd_name: "{{ inventory_hostname }}"
+etcd_ip: "{{ ansible_host }}"
+
+# -----------------------------
+# firewalld 정책 (etcd 전용)
+# -----------------------------
+# etcd client(2379):
+#  - DB 노드(Patroni)가 접근해야 하므로 DB subnet 허용
+etcd_fw_client_sources:
+  - "10.2.3.0/24"
+
+# etcd peer(2380):
+#  - etcd 노드들끼리만 통신
+etcd_fw_peer_sources:
+  - "10.2.2.20/32"
+  - "10.2.2.21/32"
+  - "10.2.2.30/32"
+
+# firewalld 태스크에서 사용하는 최종 구조
+# (subelements('sources') 요구 형식)
+etcd_firewall_ports:
+  - desc: "etcd client"
+    port: "{{ etcd_client_port }}"
+    proto: "tcp"
+    sources: "{{ etcd_fw_client_sources }}"
+  - desc: "etcd peer"
+    port: "{{ etcd_peer_port }}"
+    proto: "tcp"
+    sources: "{{ etcd_fw_peer_sources }}"
+
