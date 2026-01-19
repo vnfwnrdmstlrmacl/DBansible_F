@@ -66,3 +66,10 @@ etcd_enable_v2: false
 etcd_auto_compaction_retention: "1"
 etcd_snapshot_count: 10000
 
+etcd_version: "v3.5.12"
+etcd_download_url: "https://storage.googleapis.com/etcd/{{ etcd_version }}/etcd-{{ etcd_version }}-linux-amd64.tar.gz"
+etcd_endpoints:
+  - "10.2.3.20:2379"
+  - "10.2.3.21:2379"
+  - "10.2.3.22:2379"
+
