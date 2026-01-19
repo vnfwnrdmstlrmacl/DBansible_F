@@ -4,4 +4,9 @@
     name: etcd
     state: restarted
     enabled: true
+- name: reload systemd
+  ansible.builtin.systemd:
+    daemon_reload: true
+
+
 
