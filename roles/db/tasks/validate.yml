@@ -14,19 +14,19 @@
     path: /usr/local/bin/etcdctl
   register: etcdctl_bin
   changed_when: false
-  when: inventory_hostname in ['db-a', 'db-s', 'db-b']
-
+  when: inventory_hostname in groups['etcd']
 # etcd는 db-a/db-s/db-b 3노드 고정 (설계 기준)
 - name: Validate etcd health (from each node) - db-a/db-s/db-b only
   ansible.builtin.command: >
-    /usr/local/bin/etcdctl endpoint health
-    --endpoints=http://10.2.3.2:{{ etcd_client_port }},http://10.2.3.3:{{ etcd_client_port }},http://10.2.3.4:{{ etcd_client_port }}
+    /usr/local/bin/etcdctl
+    --endpoints={{ etcd_endpoints | map('regex_replace', '^(.*)$', 'http://\\1') | join(',') }}
+    endpoint health -w table
   environment:
     ETCDCTL_API: "3"
   register: etcd_health
   changed_when: false
   when:
-    - inventory_hostname in ['db-a', 'db-s', 'db-b']
+    - inventory_hostname == 'etcd-1'
     - etcdctl_bin.stat.exists
 
 - name: Show etcd health result

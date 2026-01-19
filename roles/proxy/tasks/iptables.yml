@@ -68,3 +68,11 @@
       - "POSTROUTING rules: {{ nat_postrouting.stdout }}"
       - "FORWARD rules: {{ filter_forward.stdout }}"
 
+- name: Fail if MASQUERADE rule is missing
+  ansible.builtin.shell: |
+    set -e
+    iptables -t nat -S POSTROUTING | grep -q "MASQUERADE"
+  args:
+    executable: /bin/bash
+  changed_when: false
+

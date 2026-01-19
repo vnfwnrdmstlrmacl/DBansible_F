@@ -7,9 +7,9 @@ log-level-console=info
 [main]
 pg1-host={{ db_nodes['db-a'].ip }}
 pg1-port={{ pg_port }}
-pg1-path=/var/lib/pgsql/data
+pg1-path={{ patroni_pg_data_dir }}
 
 pg2-host={{ db_nodes['db-s'].ip }}
 pg2-port={{ pg_port }}
-pg2-path=/var/lib/pgsql/data
+pg2-path={{ patroni_pg_data_dir }}
 

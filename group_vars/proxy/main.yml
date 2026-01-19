@@ -30,7 +30,6 @@ patroni_rest_port: 8008
 patroni_master_path: "/master"
 
 # DB 노드 목록 (문서에 IP 없음 → 반드시 채우기. 비면 실패)
-db_nodes: []
 # 예시(반드시 실제 값으로 채우기):
 db_nodes:
    - name: "db-a"

@@ -43,12 +43,12 @@
     state: directory
     mode: '0777'
 
-- name: Configure /etc/exports
-  lineinfile:
+- name: Configure /etc/exports (allow db-b only)
+  ansible.builtin.lineinfile:
     path: /etc/exports
-    line: "{{ nfs_export_path }} 10.2.3.4(rw,sync,no_subtree_check)"
-    create: yes
+    line: "{{ nfs_export_path }} {{ hostvars[groups['db-b'][0]].ansible_host }}(rw,sync,no_subtree_check)"
+    create: true
 
 - name: Reload NFS exports
-  command: exportfs -ra
-
+  ansible.builtin.command: exportfs -ra
+  changed_when: false

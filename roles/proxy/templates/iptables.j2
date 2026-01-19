@@ -1,13 +1,12 @@
 *filter
 :INPUT ACCEPT [0:0]
-:FORWARD DROP [0:0]
+:FORWARD ACCEPT [0:0]
 :OUTPUT ACCEPT [0:0]
 
-# 이미 연결된 트래픽은 허용
--A FORWARD -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
-
-# 내부망 -> 외부망 포워딩 허용
--A FORWARD -s {{ proxy_nat_internal_cidr }} -o {{ proxy_nat_external_if }} -j ACCEPT
+# 내부(10.2.3.0/24) -> 외부 인터넷 허용
+-A FORWARD -i {{ proxy_internal_iface }} -o {{ proxy_external_iface }} -s 10.2.3.0/24 -j ACCEPT
+# 외부 -> 내부로 돌아오는 트래픽 허용(세션 기반)
+-A FORWARD -i {{ proxy_external_iface }} -o {{ proxy_internal_iface }} -d 10.2.3.0/24 -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
 
 COMMIT
 
@@ -17,8 +16,8 @@ COMMIT
 :OUTPUT ACCEPT [0:0]
 :POSTROUTING ACCEPT [0:0]
 
-# 내부망 출발 트래픽을 외부 NIC로 나갈 때 MASQUERADE
--A POSTROUTING -s {{ proxy_nat_internal_cidr }} -o {{ proxy_nat_external_if }} -j MASQUERADE
+# 내부망을 외부 NIC로 NAT(MASQUERADE)
+-A POSTROUTING -s 10.2.3.0/24 -o {{ proxy_external_iface }} -j MASQUERADE
 
 COMMIT
 

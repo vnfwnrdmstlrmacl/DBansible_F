@@ -17,16 +17,11 @@
     mode: "0644"
   notify: restart keepalived
 
-- name: Start keepalived
+- name: Enable and start keepalived
   ansible.builtin.service:
     name: keepalived
     state: started
-- name: Render keepalived.conf (dual VIP)
-  ansible.builtin.template:
-    src: keepalived.conf.j2
-    dest: /etc/keepalived/keepalived.conf
-    mode: "0644"
-  notify: restart keepalived
+    enabled: true
 
 - name: Assert keepalived.conf contains our VIPs
   ansible.builtin.shell: |
