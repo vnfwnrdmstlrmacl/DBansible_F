@@ -2,6 +2,16 @@
   package:
     name: nfs-utils
     state: present
+
+- name: backup - Ensure postgres user exists
+  ansible.builtin.user:
+    name: postgres
+    system: true
+    create_home: true
+    home: /var/lib/pgsql
+    shell: /sbin/nologin
+  become: true
+
 - name: Create mount point
   ansible.builtin.file:
     path: "{{ backup_nfs_mount_point }}"

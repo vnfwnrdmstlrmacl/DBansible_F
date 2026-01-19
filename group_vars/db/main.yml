@@ -1,6 +1,12 @@
 # group_vars/db/main.yml
 # DB에서는 etcd를 절대 설치/관리하지 않음
+
+
+
+
+
 db_manage_etcd: false
+
 
 # Vault 파일 경로(필요시 사용)
 db_vault_vars_file: "{{ playbook_dir }}/group_vars/db/vault.yml"
@@ -24,8 +30,11 @@ storage_needs_route: true
 # PostgreSQL / Patroni
 # -----------------------------
 pg_version: 16
+pg_login_host: "{{ ansible_host }}"
 pg_port: 5432
 
+# Patroni REST API address (Ansible용)
+patroni_rest_host: "{{ ansible_host }}"
 patroni_rest_port: 8008
 patroni_scope: "pg-ha"
 patroni_namespace: "/service/"
