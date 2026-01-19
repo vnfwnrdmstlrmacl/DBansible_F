@@ -136,19 +136,19 @@
 # ------------------------------------------------------------
 # 클러스터 헬스체크 (선택)
 # ------------------------------------------------------------
-- name: Build etcd endpoints string (accept list or csv string)
+- name: Build etcd endpoints csv (safe)
   ansible.builtin.set_fact:
     etcd_endpoints_csv: >-
       {{
-        (etcd_endpoints if (etcd_endpoints is sequence and etcd_endpoints is not string)
+        (etcd_endpoints
+         if (etcd_endpoints is sequence and etcd_endpoints is not string)
          else (etcd_endpoints | string | split(',')))
         | map('trim')
         | reject('equalto','')
-        | map('regex_replace','^(.*)$','http://\\1')
+        | map('regex_replace', '^(https?://)?([^:]+):(\\d+)$', 'http://\\2:\\3')
         | join(',')
       }}
   when: inventory_hostname == (groups['etcd'][0])
-
 - name: Check etcd cluster health (run only on first etcd node)
   ansible.builtin.command: >
     /usr/local/bin/etcdctl

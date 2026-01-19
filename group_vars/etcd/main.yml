@@ -1,75 +1,50 @@
 ---
 # group_vars/etcd/main.yml
-# etcd 3노드 클러스터 공통 변수
-# -----------------------------
-# etcd 버전/다운로드 (roles/etcd/tasks/etcd.yml 호환용)
-# -----------------------------
+
 etcd_version: "v3.5.12"
 etcd_download_url: "https://storage.googleapis.com/etcd/{{ etcd_version }}/etcd-{{ etcd_version }}-linux-amd64.tar.gz"
 
-# -----------------------------
-# 기본 경로/유저
-# -----------------------------
-etcd_user: "etcd"
-etcd_group: "etcd"
-
-etcd_bin_path: "/usr/local/bin/etcd"
-etcdctl_bin_path: "/usr/local/bin/etcdctl"
-
-etcd_conf_dir: "/etc/etcd"
-etcd_conf_file: "/etc/etcd/etcd.conf"
+etcd_bin_dir: "/usr/local/bin"
 etcd_data_dir: "/var/lib/etcd"
+etcd_conf_dir: "/etc/etcd"
 
-# -----------------------------
-# 네트워크/포트
-# -----------------------------
 etcd_client_port: 2379
 etcd_peer_port: 2380
 
-# etcd 노드들이 붙어있는 내부 대역 (방화벽 소스 제한용)
-etcd_cluster_cidr: "10.2.3.0/24"
-
-# -----------------------------
-# 클러스터 구성
-# -----------------------------
-# 클러스터 토큰(임의 문자열, 동일해야 함)
-etcd_initial_cluster_token: "etcd-cluster-01"
-
-# 최초 구성 시 new, 기존 클러스터 재조인/재시작 설계면 existing
+etcd_cluster_token: "etcd-ha"
 etcd_initial_cluster_state: "new"
 
-# 노드 목록 (inventory의 ansible_host와 동일해야 함)
 etcd_nodes:
   - { name: "etcd-1", ip: "10.2.3.20" }
   - { name: "etcd-2", ip: "10.2.3.21" }
   - { name: "etcd-3", ip: "10.2.3.22" }
 
-# etcd의 initial-cluster 문자열 자동 생성용(템플릿/태스크에서 join 처리 가능)
-# 템플릿에서 사용하기 쉽도록 문자열도 같이 제공
-etcd_initial_cluster: >-
-  etcd-1=http://10.2.3.20:2380,etcd-2=http://10.2.3.21:2380,etcd-3=http://10.2.3.22:2380
+etcd_initial_cluster: "etcd-1=http://10.2.3.20:2380,etcd-2=http://10.2.3.21:2380,etcd-3=http://10.2.3.22:2380"
 
-# -----------------------------
-# 런타임 URL (각 노드에서 자신의 IP로 bind/advertise)
-# 보통 템플릿에서 아래처럼 사용:
-# - listen-peer-urls:  http://{{ ansible_host }}:2380
-# - listen-client-urls:http://{{ ansible_host }}:2379,http://127.0.0.1:2379
-# - initial-advertise-peer-urls: http://{{ ansible_host }}:2380
-# - advertise-client-urls:       http://{{ ansible_host }}:2379
-# -----------------------------
-etcd_listen_client_urls_extra: "http://127.0.0.1:2379"
-
-# -----------------------------
-# 운영 옵션 (필요시)
-# -----------------------------
-etcd_enable_v2: false
-etcd_auto_compaction_retention: "1"
-etcd_snapshot_count: 10000
-
-etcd_version: "v3.5.12"
-etcd_download_url: "https://storage.googleapis.com/etcd/{{ etcd_version }}/etcd-{{ etcd_version }}-linux-amd64.tar.gz"
 etcd_endpoints:
   - "10.2.3.20:2379"
   - "10.2.3.21:2379"
   - "10.2.3.22:2379"
 
+etcd_bootstrap_reset: false
+etcd_healthcheck: true
+
+etcd_cluster_cidr: "10.2.3.0/24"
+
+etcd_fw_client_sources:
+  - "10.2.3.0/24"
+
+etcd_fw_peer_sources:
+  - "10.2.3.20/32"
+  - "10.2.3.21/32"
+  - "10.2.3.22/32"
+
+etcd_firewall_ports:
+  - desc: "etcd client"
+    port: "{{ etcd_client_port }}"
+    proto: "tcp"
+    sources: "{{ etcd_fw_client_sources }}"
+  - desc: "etcd peer"
+    port: "{{ etcd_peer_port }}"
+    proto: "tcp"
+    sources: "{{ etcd_fw_peer_sources }}"
