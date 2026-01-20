@@ -1,0 +1,9 @@
+[Unit]
+Description=pgBackRest follow Patroni primary (update pg1-host)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/pgbackrest_follow_primary.sh
+

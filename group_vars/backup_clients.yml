@@ -25,4 +25,11 @@ pg_primary_data_path: "/var/lib/pgsql/patroni"
 # 접속 계정/비번(vault 권장)
 pg_backup_db_user: "postgres"
 pg_backup_db_password: "CHANGE_ME"
+# Patroni REST로 Primary 판별할 DB 노드 후보 목록 (실제 DB 노드 IP)
+patroni_nodes:
+  - "10.2.3.2"   # db-a
+  - "10.2.3.3"   # db-s
+
+patroni_rest_port: 8008
+patroni_master_path: "/master"
 

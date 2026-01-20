@@ -22,6 +22,10 @@
 - import_tasks: pgbackrest_stanza.yml
   when: inventory_hostname in groups.get('backup_clients', [])
 
+- import_tasks: pgbackrest_follow_primary.yml
+  when: inventory_hostname in groups.get('backup_clients', [])
+
+
 - import_tasks: db_backup_cron.yml
   when: inventory_hostname in groups.get('backup_clients', [])
 
