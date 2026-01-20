@@ -2,7 +2,8 @@
 # backup_clients(dbb)에서 실행되는 backup role에 필요한 모든 변수
 
 # NFS 서버(storageVM) export
-backup_nfs_export_dir: "/export/pgbackrest"
+# NFS 서버(storageVM) export
+backup_nfs_export_dir: "/exports/pgbackrest"
 
 # dbb 마운트 경로
 backup_nfs_mount_point: "/var/lib/pgbackrest"
