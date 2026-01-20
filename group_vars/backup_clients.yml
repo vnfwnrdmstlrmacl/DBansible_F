@@ -1,35 +1,50 @@
 # group_vars/backup_clients.yml
 # backup_clients(dbb)에서 실행되는 backup role에 필요한 모든 변수
 
-# NFS 서버(storageVM) export
-# NFS 서버(storageVM) export
+# -----------------------------
+# NFS (repo 저장소)
+# -----------------------------
 backup_nfs_export_dir: "/exports/pgbackrest"
-
-# dbb 마운트 경로
 backup_nfs_mount_point: "/var/lib/pgbackrest"
-
-# repo 경로
 pgbackrest_repo_path: "/var/lib/pgbackrest/repo1"
 
-# stanza/옵션
+# -----------------------------
+# pgBackRest
+# -----------------------------
 pgbackrest_stanza: "main"
 pgbackrest_retention_full: 7
 pgbackrest_process_max: 2
 pgbackrest_log_level_console: "info"
 
-# Primary 접속 (VIP 권장)
-pg_primary_host: "10.2.2.254"
-pg_primary_port: 5432
-pg_primary_data_path: "/var/lib/pgsql/patroni"
+# -----------------------------
+# DB 논리 접속(VIP): SQL/테스트용
+# -----------------------------
+pg_vip_host: "10.2.2.254"
+pg_vip_port: 5432
 
-# 접속 계정/비번(vault 권장)
-pg_backup_db_user: "postgres"
-pg_backup_db_password: "CHANGE_ME"
+# PGDATA (DB 노드에 실제 존재하는 경로)
+pg_data_path: "/var/lib/pgsql/patroni"
+
+# -----------------------------
+# pgBackRest 물리백업 대상(SSH 대상): 실제 DB 노드
+#  - follow-primary(타이머/스크립트)로 이 값이 자동 갱신되게 만들 예정
+#  - 초기값은 후보 중 하나로 세팅(예: db-a)
+# -----------------------------
+pgbackrest_pg1_host_initial: "10.2.3.2"
+pgbackrest_pg1_user: "postgres"
+
+# -----------------------------
 # Patroni REST로 Primary 판별할 DB 노드 후보 목록 (실제 DB 노드 IP)
+# -----------------------------
 patroni_nodes:
-  - "10.2.3.2"   # db-a
-  - "10.2.3.3"   # db-s
-
+  - "10.2.3.2"
+  - "10.2.3.3"
 patroni_rest_port: 8008
 patroni_master_path: "/master"
+
+# -----------------------------
+# DB 계정/비번 (.pgpass 및 필요 시 사용)
+# -----------------------------
+pg_backup_db_user: "postgres"
+pg_backup_db_password: "CHANGE_ME"
 

@@ -2,7 +2,7 @@
 
 [global]
 # repo1-path: 실제 백업 저장 위치 (NFS 마운트 아래 repo1 권장)
-repo1-path={{ pgbackrest_repo_path | default(backup_nfs_mount_point ~ '/repo1') }}
+repo1-path={{ pgbackrest_repo_path | default((backup_nfs_mount_point | default('/var/lib/pgbackrest')) ~ '/repo1') }}
 
 # retention (full backups)
 repo1-retention-full={{ pgbackrest_retention_full | default(7) }}
@@ -14,14 +14,34 @@ log-level-console={{ pgbackrest_log_level_console | default('info') }}
 # ---- stanza ----
 [{% set stanza = pgbackrest_stanza | default('main') %}{{ stanza }}]
 
-# ---- PostgreSQL target (primary) ----
-{% if pg_primary_host is not defined or (pg_primary_host | string | length) == 0 %}
-# ERROR: pg_primary_host is undefined. Define it in group_vars/backup_target.yml (or host_vars/dbb.yml).
+# -----------------------------------------------------------------------------
+# PostgreSQL target (physical backup via SSH)
+# - IMPORTANT:
+#   pg1-host must be a real DB node reachable by SSH (NOT HAProxy/VIP).
+#   VIPs (10.2.2.254 / 10.2.3.254) are for SQL routing, not for pgBackRest remote.
+# -----------------------------------------------------------------------------
+
+{% if pgbackrest_pg1_host is defined and (pgbackrest_pg1_host | string | length) > 0 %}
+pg1-host={{ pgbackrest_pg1_host }}
+{% elif pgbackrest_pg1_host_initial is defined and (pgbackrest_pg1_host_initial | string | length) > 0 %}
+pg1-host={{ pgbackrest_pg1_host_initial }}
+{% elif (patroni_nodes is defined) and ((patroni_nodes | length) > 0) %}
+# fallback: first Patroni candidate (must be a real DB node IP)
+pg1-host={{ patroni_nodes[0] }}
 {% else %}
-pg1-host={{ pg_primary_host }}
+# ERROR: pgbackrest_pg1_host (or pgbackrest_pg1_host_initial) is undefined.
+# Define it in group_vars/backup_clients.yml as a real DB node IP (e.g., 10.2.3.2 / 10.2.3.3).
 {% endif %}
 
-pg1-port={{ pg_primary_port | default(5432) }}
+pg1-port={{ pg_primary_port | default(pg_vip_port | default(5432)) }}
+
+# PGDATA path on the DB node
+{% if pg_data_path is defined and (pg_data_path | string | length) > 0 %}
+pg1-path={{ pg_data_path }}
+{% else %}
 pg1-path={{ pg_primary_data_path | default('/var/lib/pgsql/data') }}
-pg1-user={{ pg_backup_db_user | default('postgres') }}
+{% endif %}
+
+# SSH user to access the DB node (needs key-based SSH)
+pg1-user={{ pgbackrest_pg1_user | default(pg_backup_db_user | default('postgres')) }}
 
