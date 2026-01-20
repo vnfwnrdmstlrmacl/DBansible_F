@@ -3,6 +3,28 @@
 # internal iface: {{ proxy_internal_iface }}
 # internal cidr : {{ proxy_internal_cidr }}
 
+# ============================================================
+# MANGLE TABLE
+# - TCP MSS Clamping (PMTU blackhole 방지)
+# - Proxy를 경유하는 DB / ETCD / Backup VM의
+#   HTTPS / pip / dnf / curl 스트리밍 연결 안정화
+# ============================================================
+*mangle
+:PREROUTING ACCEPT [0:0]
+:INPUT ACCEPT [0:0]
+:FORWARD ACCEPT [0:0]
+:OUTPUT ACCEPT [0:0]
+:POSTROUTING ACCEPT [0:0]
+
+# 내부 -> 외부로 나가는 TCP SYN 패킷의 MSS를 경로 MTU에 맞게 강제
+-A FORWARD -i {{ proxy_internal_iface }} -o {{ proxy_external_iface }} -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu
+
+COMMIT
+
+
+# ============================================================
+# FILTER TABLE
+# ============================================================
 *filter
 :INPUT ACCEPT [0:0]
 :FORWARD DROP [0:0]
@@ -32,15 +54,16 @@
 
 # --------------------------------------------------------------------
 # [추가] DB(10.2.3.0/24) <-> Storage(10.2.2.0/24) 예외 허용
-# - 목적: DB subnet의 host(dbb 등)에서 storageVM(10.2.2.30) NFS(2049), rpcbind(111) 접근
-# - 현재 증상: dbb -> storageVM ping/2049/111 타임아웃
-# - 해결: FORWARD 양방향 명시 허용 (DROP 정책 우회)
 # --------------------------------------------------------------------
 -A FORWARD -s 10.2.3.0/24 -d 10.2.2.0/24 -j ACCEPT
 -A FORWARD -s 10.2.2.0/24 -d 10.2.3.0/24 -j ACCEPT
 
 COMMIT
 
+
+# ============================================================
+# NAT TABLE
+# ============================================================
 *nat
 :PREROUTING ACCEPT [0:0]
 :INPUT ACCEPT [0:0]
@@ -50,11 +73,12 @@ COMMIT
 # =========================
 # NAT (MASQUERADE)
 # =========================
+
+# 내부 subnet -> 외부 NAT
 -A POSTROUTING -s {{ proxy_internal_cidr }} -o {{ proxy_external_iface }} -j MASQUERADE
 
 # --------------------------------------------------------------------
 # [추가] DB -> Storage 전용 MASQUERADE
-# - 목적: storageVM이 10.2.3.0/24로 돌아가는 라우트가 없어도 응답이 Proxy로 돌아오도록 SNAT
 # --------------------------------------------------------------------
 -A POSTROUTING -s 10.2.3.0/24 -d 10.2.2.0/24 -o {{ proxy_external_iface }} -j MASQUERADE
 
