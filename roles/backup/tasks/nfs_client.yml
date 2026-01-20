@@ -1,9 +1,29 @@
+---
+# roles/backup/tasks/nfs_client.yml
+# NFS Client: runs on backup_clients group (dbb)
+
+- name: Ensure this runs only on backup_clients hosts
+  ansible.builtin.assert:
+    that:
+      - inventory_hostname in groups.get('backup_clients', [])
+    fail_msg: "nfs_client.yml must run only on hosts in group 'backup_clients'."
+  tags: [nfs]
+
+- name: Validate backup_server group exists and has at least 1 host
+  ansible.builtin.assert:
+    that:
+      - groups.get('backup_server') is not none
+      - (groups.get('backup_server') | length) > 0
+    fail_msg: "Group 'backup_server' is missing or empty. Define it in inventory."
+  tags: [nfs]
+
 - name: Install NFS client packages
-  package:
+  ansible.builtin.dnf:
     name: nfs-utils
     state: present
+  tags: [nfs]
 
-- name: backup - Ensure postgres user exists
+- name: Ensure postgres user exists
   ansible.builtin.user:
     name: postgres
     system: true
@@ -11,6 +31,7 @@
     home: /var/lib/pgsql
     shell: /sbin/nologin
   become: true
+  tags: [nfs]
 
 - name: Create mount point
   ansible.builtin.file:
@@ -19,14 +40,16 @@
     owner: postgres
     group: postgres
     mode: "0755"
-  when: inventory_hostname in groups['backup_clients']
+  become: true
+  tags: [nfs]
 
-- name: Mount NFS storage
+- name: Mount NFS storage (NFSv4 recommended)
   ansible.posix.mount:
     path: "{{ backup_nfs_mount_point }}"
-    src: "{{ hostvars[groups['backup_server'][0]].ansible_host }}:{{ backup_nfs_export_dir }}"
-    fstype: nfs
-    opts: "rw,sync,hard,timeo=600,retrans=2"
+    src: "{{ hostvars[groups['backup_server'][0]].ansible_host | default(groups['backup_server'][0]) }}:{{ backup_nfs_export_dir }}"
+    fstype: nfs4
+    opts: "rw,sync,hard,timeo=600,retrans=2,_netdev"
     state: mounted
-  when: inventory_hostname in groups['backup_clients']
+  become: true
+  tags: [nfs]
 

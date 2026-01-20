@@ -1,0 +1,13 @@
+---
+# pgBackRest가 백업을 뜰 Primary 접속 대상
+# Patroni/HAProxy/Keepalived로 Primary로 라우팅되는 DB VIP 권장
+pg_primary_host: "10.2.3.254"
+pg_primary_port: 5432
+
+# stanza 기본값(없으면 main)
+pgbackrest_stanza: "main"
+
+# repo mount point (NFS)
+backup_nfs_mount_point: "/var/lib/pgbackrest"
+pg_backup_db_password: "CHANGE_ME_STRONG_PASSWORD"
+

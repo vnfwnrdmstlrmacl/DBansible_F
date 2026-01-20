@@ -1,66 +1,186 @@
-- name: Install firewalld (RHEL)
+---
+# roles/backup/tasks/nfs_server.yml
+# NFS Server for pgBackRest
+# Target: backup_server group (storageVM)
+
+# ------------------------------------------------------------------
+# Safety check
+# ------------------------------------------------------------------
+- name: Ensure this runs only on backup_server hosts
+  ansible.builtin.assert:
+    that:
+      - inventory_hostname in groups.get('backup_server', [])
+    fail_msg: "nfs_server.yml must run only on hosts in group 'backup_server'."
+  tags: [nfs]
+
+- name: Ensure backup_clients group exists
+  ansible.builtin.assert:
+    that:
+      - groups.get('backup_clients') is not none
+      - (groups.get('backup_clients') | length) > 0
+    fail_msg: "Group 'backup_clients' is missing or empty."
+  tags: [nfs]
+
+# ------------------------------------------------------------------
+# firewalld
+# ------------------------------------------------------------------
+- name: Install firewalld (RHEL family)
   ansible.builtin.dnf:
     name: firewalld
     state: present
   when: ansible_os_family == "RedHat"
+  tags: [nfs, firewall]
 
-- name: Enable and start firewalld (RHEL)
+- name: Enable and start firewalld
   ansible.builtin.service:
     name: firewalld
     state: started
     enabled: true
   when: ansible_os_family == "RedHat"
+  tags: [nfs, firewall]
 
+# ------------------------------------------------------------------
+# IMPORTANT: Routing (return path fix)
+# - Find active NM connection for ens160, then add route permanently
+# ------------------------------------------------------------------
+- name: Get active NetworkManager connection name for ens160
+  ansible.builtin.command: nmcli -t -f NAME,DEVICE connection show --active
+  register: nmcli_active_conns
+  changed_when: false
+  tags: [nfs, network]
 
+- name: Set fact- ens160 active connection name
+  ansible.builtin.set_fact:
+    ens160_conn_name: >-
+      {{
+        (nmcli_active_conns.stdout_lines
+          | select('search', ':ens160$')
+          | list
+          | first
+          | default('')
+          ).split(':')[0]
+      }}
+  tags: [nfs, network]
+
+- name: Ensure ens160 connection name was detected
+  ansible.builtin.assert:
+    that:
+      - ens160_conn_name is defined
+      - (ens160_conn_name | length) > 0
+    fail_msg: "Could not detect active NetworkManager connection for ens160 on storageVM."
+  tags: [nfs, network]
+
+- name: Add static route to DB subnet via Proxy VIP (10.2.2.254)
+  ansible.builtin.command: >
+    nmcli connection modify "{{ ens160_conn_name }}"
+    +ipv4.routes "10.2.3.0/24 10.2.2.254"
+  register: nmcli_add_route
+  changed_when: "'successfully' in (nmcli_add_route.stdout | lower) or nmcli_add_route.rc == 0"
+  tags: [nfs, network]
+
+- name: Reload NetworkManager connection to apply static route
+  ansible.builtin.command: nmcli connection up "{{ ens160_conn_name }}"
+  register: nmcli_up
+  changed_when: nmcli_up.rc == 0
+  tags: [nfs, network]
+
+# ------------------------------------------------------------------
+# IMPORTANT: Interface zone separation
+#  - ens160 : public  (10.2.2.0/24)
+#  - ens192 : trusted (DB subnet side)
+# ------------------------------------------------------------------
+- name: Move internal interface (ens192) to trusted zone
+  ansible.posix.firewalld:
+    zone: trusted
+    interface: ens192
+    permanent: true
+    state: enabled
+    immediate: true
+  when: ansible_os_family == "RedHat"
+  tags: [nfs, firewall]
+
+- name: Remove internal interface (ens192) from public zone
+  ansible.posix.firewalld:
+    zone: public
+    interface: ens192
+    permanent: true
+    state: disabled
+    immediate: true
+  when: ansible_os_family == "RedHat"
+  tags: [nfs, firewall]
+
+# ------------------------------------------------------------------
+# NFS server packages and services
+# ------------------------------------------------------------------
 - name: Install NFS server packages
-  package:
+  ansible.builtin.dnf:
     name: nfs-utils
     state: present
+  tags: [nfs]
 
-- name: Enable and start rpcbind and nfs-server
-  systemd:
+- name: Enable and start NFS services
+  ansible.builtin.systemd:
     name: "{{ item }}"
     state: started
     enabled: true
   loop:
     - rpcbind
     - nfs-server
+  tags: [nfs]
 
-- name: Open NFS related firewall services
-  firewalld:
+# ------------------------------------------------------------------
+# Firewall services (public zone only)
+# trusted zone(ens192)는 기본 ACCEPT
+# ------------------------------------------------------------------
+- name: Open NFS related services on public zone
+  ansible.posix.firewalld:
+    zone: public
     service: "{{ item }}"
-    permanent: yes
+    permanent: true
     state: enabled
-    immediate: yes
+    immediate: true
   loop:
     - nfs
     - mountd
     - rpc-bind
+  when: ansible_os_family == "RedHat"
+  tags: [nfs, firewall]
 
-- name: Create export directory
+# ------------------------------------------------------------------
+# Export directory
+# ------------------------------------------------------------------
+- name: Create NFS export directory
   ansible.builtin.file:
     path: "{{ backup_nfs_export_dir }}"
     state: directory
     owner: root
     group: root
     mode: "0755"
-  when: inventory_hostname in groups['backup_server']
+  tags: [nfs]
 
-- name: Pick backup client host (first host in backup_clients)
+# ------------------------------------------------------------------
+# Build backup client address list (hostname/IP safe)
+# ------------------------------------------------------------------
+- name: Build backup client address list
   ansible.builtin.set_fact:
-    _backup_client_host: "{{ groups['backup_clients'][0] }}"
-  when: inventory_hostname in groups['backup_server']
+    backup_client_addrs: "{{ backup_client_addrs | default([]) + [ (hostvars[item].ansible_host | default(item)) ] }}"
+  loop: "{{ groups['backup_clients'] }}"
+  tags: [nfs]
 
-- name: Configure /etc/exports (allow backup client only)
+# ------------------------------------------------------------------
+# /etc/exports
+# ------------------------------------------------------------------
+- name: Configure /etc/exports for backup clients
   ansible.builtin.template:
     src: exports.j2
     dest: /etc/exports
     owner: root
     group: root
     mode: "0644"
-  when: inventory_hostname in groups['backup_server']
-  notify: reload nfs exports
+  notify: Reload NFS exports
+  tags: [nfs]
 
-- name: Reload NFS exports
-  ansible.builtin.command: exportfs -ra
-  changed_when: false
+- name: Apply NFS exports immediately
+  ansible.builtin.meta: flush_handlers
+  tags: [nfs]
+

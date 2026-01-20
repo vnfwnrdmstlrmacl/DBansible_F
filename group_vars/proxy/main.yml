@@ -30,20 +30,25 @@ haproxy_listen_port: 5432
 # Patroni REST API
 patroni_rest_port: 8008
 patroni_master_path: "/master"
+proxy_check_host: "localhost"
 
-# DB 노드 목록 (문서에 IP 없음 → 반드시 채우기. 비면 실패)
-# 예시(반드시 실제 값으로 채우기):
+# DB 노드 목록 (실제 값)
 db_nodes:
-   - name: "db-a"
-     host: "10.2.3.11"
-     pg_port: 5432
-     patroni_port: 8008
-   - name: "db-s"
-     host: "10.2.3.12"
-     pg_port: 5432
-     patroni_port: 8008
-   - name: "db-b"
-     host: "10.2.3.13"
-     pg_port: 5432
-     patroni_port: 8008
+  - name: "db-a"
+    host: "10.2.3.2"
+    pg_port: 5432
+    patroni_port: 8008
+
+  - name: "db-s"
+    host: "10.2.3.3"
+    pg_port: 5432
+    patroni_port: 8008
+
+  # db-b는 백업 전용이면 LB 대상 아님 → 템플릿에서 자동 스킵되게 표시
+  - name: "db-b"
+    host: "10.2.3.4"
+    pg_port: 5432
+    patroni_port: 8008
+    role: "backup"
+    patroni_enabled: false
 

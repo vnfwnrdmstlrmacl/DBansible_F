@@ -1,4 +1,5 @@
 ---
+pgbackrest_stanza: "main"
 # NFS export directory (backup repository)
 backup_nfs_export_dir: "/exports/pgbackrest"
 
