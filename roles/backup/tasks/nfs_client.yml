@@ -35,7 +35,7 @@
 
 - name: Create mount point
   ansible.builtin.file:
-    path: "{{ backup_nfs_mount_point }}"
+    path: "{{ backup_nfs_mount_point | default('/var/lib/pgbackrest') }}"
     state: directory
     owner: postgres
     group: postgres
@@ -45,11 +45,21 @@
 
 - name: Mount NFS storage (NFSv4 recommended)
   ansible.posix.mount:
-    path: "{{ backup_nfs_mount_point }}"
-    src: "{{ hostvars[groups['backup_server'][0]].ansible_host | default(groups['backup_server'][0]) }}:{{ backup_nfs_export_dir }}"
+    path: "{{ backup_nfs_mount_point | default('/var/lib/pgbackrest') }}"
+    src: "{{ hostvars[groups['backup_server'][0]].ansible_host | default(groups['backup_server'][0]) }}:{{ backup_nfs_export_dir | default(nfs_export_path) }}"
     fstype: nfs4
     opts: "rw,sync,hard,timeo=600,retrans=2,_netdev"
     state: mounted
+  become: true
+  tags: [nfs]
+
+- name: Ensure pgBackRest repo directory exists
+  ansible.builtin.file:
+    path: "{{ pgbackrest_repo_path | default((backup_nfs_mount_point | default('/var/lib/pgbackrest')) ~ '/repo1') }}"
+    state: directory
+    owner: postgres
+    group: postgres
+    mode: "0755"
   become: true
   tags: [nfs]
 

@@ -1,13 +1,27 @@
----
-# pgBackRest가 백업을 뜰 Primary 접속 대상
-# Patroni/HAProxy/Keepalived로 Primary로 라우팅되는 DB VIP 권장
-pg_primary_host: "10.2.3.254"
-pg_primary_port: 5432
+# group_vars/backup_clients.yml
+# backup_clients(dbb)에서 실행되는 backup role에 필요한 모든 변수
 
-# stanza 기본값(없으면 main)
-pgbackrest_stanza: "main"
+# NFS 서버(storageVM) export
+backup_nfs_export_dir: "/export/pgbackrest"
 
-# repo mount point (NFS)
+# dbb 마운트 경로
 backup_nfs_mount_point: "/var/lib/pgbackrest"
-pg_backup_db_password: "CHANGE_ME_STRONG_PASSWORD"
+
+# repo 경로
+pgbackrest_repo_path: "/var/lib/pgbackrest/repo1"
+
+# stanza/옵션
+pgbackrest_stanza: "main"
+pgbackrest_retention_full: 7
+pgbackrest_process_max: 2
+pgbackrest_log_level_console: "info"
+
+# Primary 접속 (VIP 권장)
+pg_primary_host: "10.2.2.254"
+pg_primary_port: 5432
+pg_primary_data_path: "/var/lib/pgsql/patroni"
+
+# 접속 계정/비번(vault 권장)
+pg_backup_db_user: "postgres"
+pg_backup_db_password: "CHANGE_ME"
 

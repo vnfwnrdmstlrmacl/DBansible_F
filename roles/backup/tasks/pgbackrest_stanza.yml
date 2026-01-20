@@ -1,15 +1,42 @@
 ---
-# stanza-create는 repo(=NFS)가 마운트되어 있고, DB-A 접속이 되는 상태에서 1회 수행
-# 이미 stanza가 있으면 실패할 수 있으니 idempotent 처리
-- name: Check if stanza exists
-  ansible.builtin.command: "pgbackrest --stanza={{ pgbackrest_stanza }} info"
-  become_user: postgres
-  register: stanza_info
+# roles/backup/tasks/pgbackrest_stanza.yml
+- name: Install .pgpass for postgres on dbb (no prompt)
+  ansible.builtin.copy:
+    dest: /root/.pgpass
+    mode: "0600"
+    content: |
+      {{ pg_primary_host }}:{{ pg_primary_port | default(5432) }}:*:{{ pg_backup_db_user | default('postgres') }}:{{ pg_backup_db_password }}
+  when:
+    - pg_backup_db_password is defined
+    - (pg_backup_db_password | string | length) > 0
+
+
+- name: Ensure pgBackRest config exists
+  stat:
+    path: /etc/pgbackrest/pgbackrest.conf
+  register: pgbr_conf
+
+- name: Abort if pgBackRest config is missing
+  fail:
+    msg: "pgBackRest config not found: /etc/pgbackrest/pgbackrest.conf"
+  when: not pgbr_conf.stat.exists
+
+- name: Test connection to primary DB (via VIP)
+  command: >
+    psql -w -h {{ pg_primary_host }} -p {{ pg_primary_port | default(5432) }}
+    -U {{ pg_backup_db_user | default('postgres') }} -d postgres -c "select 1;"
+  register: psql_test
+  changed_when: false
+
+- name: Check if pgBackRest stanza already exists
+  command: pgbackrest --stanza={{ pgbackrest_stanza }} info
+  register: pgbr_info
   changed_when: false
   failed_when: false
 
-- name: Create stanza (first time only)
-  ansible.builtin.command: "pgbackrest --stanza={{ pgbackrest_stanza }} stanza-create"
-  become_user: postgres
-  when: stanza_info.rc != 0
+- name: Create pgBackRest stanza (one-time init)
+  command: pgbackrest --stanza={{ pgbackrest_stanza }} stanza-create
+  when:
+    - "'No stanzas exist' in pgbr_info.stdout or pgbr_info.rc != 0"
+  changed_when: true
 

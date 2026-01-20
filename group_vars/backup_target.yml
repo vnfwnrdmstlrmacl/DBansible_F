@@ -1,18 +1,19 @@
-# NFS
-storage_ip: 10.2.2.30
-nfs_export_path: /export/pgbackrest
-local_mount_path: /mnt/pgbackrest
+# group_vars/backup_target.yml
+# 백업 대상(DB) 정의: dbb가 어디로 붙을지, 어떤 PGDATA인지, 어떤 계정인지
 
-# pgBackRest
-pgbackrest_stanza: main
-pgbackrest_retention_full: 7
-
-# DB-A (Primary)
-pg_primary_host: 10.2.3.2
+# Patroni/HAProxy/Keepalived로 Primary로 라우팅되는 DB VIP 권장
+pg_primary_host: "10.2.3.254"
 pg_primary_port: 5432
-pg_primary_data_path: /var/lib/pgsql/patroni
-pg_backup_db_user: postgres
+
+# Patroni 실제 PGDATA (너가 쓰던 값 유지)
+pg_primary_data_path: "/var/lib/pgsql/patroni"
+
+# stanza 이름
+pgbackrest_stanza: "main"
+
+# DB 접속 계정
+pg_backup_db_user: "postgres"
 
 # vault로 넣어야 하는 값
-pg_backup_db_password: "VAULT로 관리"
+pg_backup_db_password: "CHANGE_ME"
 
