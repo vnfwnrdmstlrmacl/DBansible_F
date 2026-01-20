@@ -12,7 +12,10 @@ defaults
     timeout server  1m
 
 frontend fe_pg
-    bind {{ haproxy_listen_ip | default('*') }}:{{ haproxy_listen_port }}
+    # VIP(10.2.2.254)가 MASTER에만 존재하는 구조에서,
+    # 특정 IP로 bind 하면 BACKUP 또는 VIP 미할당 시점에 HAProxy 기동 자체가 실패함.
+    # 따라서 모든 노드에서 항상 기동 가능하도록 포트만 bind 한다.
+    bind :{{ haproxy_listen_port }}
     default_backend be_pg_primary
 
 backend be_pg_primary

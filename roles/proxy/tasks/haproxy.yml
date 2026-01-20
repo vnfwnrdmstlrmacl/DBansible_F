@@ -1,3 +1,6 @@
+---
+# roles/proxy/tasks/haproxy.yml
+
 - name: Render haproxy.cfg
   ansible.builtin.template:
     src: haproxy.cfg.j2
@@ -5,8 +8,13 @@
     mode: "0644"
   notify: restart haproxy
 
-- name: Start haproxy
+- name: Validate haproxy configuration (syntax check)
+  ansible.builtin.command: haproxy -c -f /etc/haproxy/haproxy.cfg
+  changed_when: false
+
+- name: Enable and start haproxy (always-on)
   ansible.builtin.service:
     name: haproxy
     state: started
+    enabled: true
 
