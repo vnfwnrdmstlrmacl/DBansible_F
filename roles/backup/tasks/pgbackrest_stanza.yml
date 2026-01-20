@@ -1,5 +1,6 @@
 ---
 # roles/backup/tasks/pgbackrest_stanza.yml
+
 - name: Install .pgpass for postgres on dbb (no prompt)
   ansible.builtin.copy:
     dest: /root/.pgpass
@@ -10,33 +11,44 @@
     - pg_backup_db_password is defined
     - (pg_backup_db_password | string | length) > 0
 
-
 - name: Ensure pgBackRest config exists
-  stat:
+  ansible.builtin.stat:
     path: /etc/pgbackrest/pgbackrest.conf
   register: pgbr_conf
 
 - name: Abort if pgBackRest config is missing
-  fail:
+  ansible.builtin.fail:
     msg: "pgBackRest config not found: /etc/pgbackrest/pgbackrest.conf"
   when: not pgbr_conf.stat.exists
 
-- name: Test connection to primary DB (via VIP)
-  command: >
-    psql -w -h {{ pg_primary_host }} -p {{ pg_primary_port | default(5432) }}
-    -U {{ pg_backup_db_user | default('postgres') }} -d postgres -c "select 1;"
-  register: psql_test
-  changed_when: false
-
+# ------------------------------------------------------------
+# 1) Stanza 존재 여부 확인 (없으면 stanza-create 필요)
+# ------------------------------------------------------------
 - name: Check if pgBackRest stanza already exists
-  command: pgbackrest --stanza={{ pgbackrest_stanza }} info
+  ansible.builtin.command: pgbackrest --stanza={{ pgbackrest_stanza }} info
   register: pgbr_info
   changed_when: false
   failed_when: false
 
+- name: Set fact - stanza_missing
+  ansible.builtin.set_fact:
+    stanza_missing: "{{ ('No stanzas exist' in (pgbr_info.stdout | default(''))) or (pgbr_info.rc | int != 0) }}"
+
+# ------------------------------------------------------------
+# 2) Stanza 없을 때: stanza-create 수행
+# ------------------------------------------------------------
 - name: Create pgBackRest stanza (one-time init)
-  command: pgbackrest --stanza={{ pgbackrest_stanza }} stanza-create
-  when:
-    - "'No stanzas exist' in pgbr_info.stdout or pgbr_info.rc != 0"
+  ansible.builtin.command: pgbackrest --stanza={{ pgbackrest_stanza }} stanza-create
+  register: stanza_create
   changed_when: true
+  when: stanza_missing | bool
+
+# ------------------------------------------------------------
+# 3) pgBackRest 자체로 검증 (psql 불필요)
+#    - pgbackrest check는 DB 접근/설정/권한 관점에서 가장 정확한 검증
+# ------------------------------------------------------------
+- name: Validate pgBackRest can reach primary and repo (pgbackrest check)
+  ansible.builtin.command: pgbackrest --stanza={{ pgbackrest_stanza }} check
+  register: pgbr_check
+  changed_when: false
 
