@@ -1,0 +1,11 @@
+---
+# SSH role defaults
+
+# dbb에서 생성할 SSH 키 경로
+ssh_dbb_key_path: "/root/.ssh/id_ed25519"
+
+# dbb 키를 배포할 대상 그룹
+ssh_dbb_target_group: "db_cluster"
+
+# 키 배포 대상 사용자
+ssh_target_user: "root"

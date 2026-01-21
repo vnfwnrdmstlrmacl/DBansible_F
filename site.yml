@@ -35,8 +35,7 @@
       ansible.builtin.include_vars:
         file: "{{ playbook_dir }}/group_vars/etcd/main.yml"
 
-
-  roles : 
+  roles:
     - etcd
   tags: ['etcd']
 
@@ -63,6 +62,21 @@
     - db
 
   tags: ['db_infra']
+
+
+###############################################################################
+# 3.5 SSH bootstrap (dbb -> db_cluster)  [추가]
+###############################################################################
+###############################################################################
+# 0. SSH key sync (dbb -> db_cluster)
+###############################################################################
+- name: Sync SSH keys (dbb -> db_cluster)
+  hosts: db_backup:db_cluster
+  gather_facts: false
+  become: true
+  roles:
+    - ssh
+  tags: ['ssh']
 
 
 ###############################################################################

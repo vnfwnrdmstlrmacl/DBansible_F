@@ -1,0 +1,59 @@
+---
+# 목적:
+#  - dbb(backup client)가 생성한 SSH 공개키를 db_cluster(db-a/db-s)의 root authorized_keys에 추가한다.
+# 전제:
+#  - Ansible 컨트롤 노드(Proxy1)에서 dbb/db-a/db-s로 SSH 접속이 가능해야 한다. (Proxy1 키는 이미 배포됨)
+
+- name: Ensure dbb has an ed25519 keypair (create if missing)
+  ansible.builtin.openssh_keypair:
+    path: /root/.ssh/id_ed25519
+    type: ed25519
+    owner: root
+    group: root
+    mode: "0600"
+  when: inventory_hostname in groups['db_backup']
+  become: true
+
+- name: Read dbb public key
+  ansible.builtin.slurp:
+    src: /root/.ssh/id_ed25519.pub
+  register: dbb_pub_slurp
+  when: inventory_hostname in groups['db_backup']
+  become: true
+
+# dbb의 pubkey를 전체 플레이(hosts)에 공유하기 위해 set_fact (run_once + delegate)
+- name: Set fact: dbb_public_key
+  ansible.builtin.set_fact:
+    dbb_public_key: "{{ (dbb_pub_slurp.content | b64decode).strip() }}"
+  when: inventory_hostname in groups['db_backup']
+  become: true
+
+- name: Propagate dbb_public_key to controller fact (run once)
+  ansible.builtin.set_fact:
+    dbb_public_key_global: "{{ dbb_public_key }}"
+  run_once: true
+  delegate_to: localhost
+
+# 이제 db_cluster에서 localhost fact를 읽어 authorized_keys에 추가
+- name: Ensure /root/.ssh exists on db_cluster
+  ansible.builtin.file:
+    path: /root/.ssh
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+  when: inventory_hostname in groups['db_cluster']
+  become: true
+
+- name: Add dbb public key to root authorized_keys on db_cluster (idempotent)
+  ansible.builtin.lineinfile:
+    path: /root/.ssh/authorized_keys
+    create: true
+    owner: root
+    group: root
+    mode: "0600"
+    line: "{{ hostvars['localhost']['dbb_public_key_global'] }}"
+    state: present
+  when: inventory_hostname in groups['db_cluster']
+  become: true
+

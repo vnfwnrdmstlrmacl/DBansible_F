@@ -8,6 +8,10 @@ LOG="/var/log/pgbackrest/follow_primary.log"
 PATRONI_PORT="{{ patroni_rest_port | default(8008) }}"
 MASTER_PATH="{{ patroni_master_path | default('/master') }}"
 
+SSH_USER="{{ pgbackrest_pg1_host_user | default('root') }}"
+SSH_KEY="{{ pgbackrest_ssh_key_path | default('/root/.ssh/id_ed25519') }}"
+SSH_OPTS=(-i "$SSH_KEY" -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=5 -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/root/.ssh/known_hosts -o LogLevel=ERROR)
+
 NODES=(
 {% for ip in patroni_nodes %}
   "{{ ip }}"
@@ -22,7 +26,6 @@ ts() { date '+%F %T'; }
 
 echo "$(ts) INFO: follow-primary run begin" >> "$LOG"
 
-# 1) 현재 primary 찾기 (Patroni /master가 200이면 primary)
 PRIMARY=""
 for ip in "${NODES[@]}"; do
   if curl -sSf -o /dev/null --max-time 2 "http://${ip}:${PATRONI_PORT}${MASTER_PATH}"; then
@@ -36,43 +39,47 @@ if [[ -z "$PRIMARY" ]]; then
   exit 2
 fi
 
-# 2) 현재 conf의 pg1-host 값 추출
 if [[ ! -f "$CONF" ]]; then
   echo "$(ts) ERROR: missing config: $CONF" >> "$LOG"
   exit 3
 fi
 
-CURRENT="$(grep -E '^[[:space:]]*pg1-host[[:space:]]*=' "$CONF" | tail -n 1 | awk -F= '{gsub(/[[:space:]]/,"",$2); print $2}' || true)"
+# SSH precheck
+if ssh "${SSH_OPTS[@]}" "${SSH_USER}@${PRIMARY}" "echo OK" >>"$LOG" 2>&1; then
+  echo "$(ts) INFO: SSH precheck OK (${SSH_USER}@${PRIMARY})" >> "$LOG"
+else
+  echo "$(ts) ERROR: SSH precheck FAILED (${SSH_USER}@${PRIMARY})" >> "$LOG"
+  exit 10
+fi
 
-# 3) 변화 없으면 종료
-if [[ "$CURRENT" == "$PRIMARY" ]]; then
+CURRENT_HOST="$(grep -E '^[[:space:]]*pg1-host[[:space:]]*=' "$CONF" | tail -n 1 | awk -F= '{gsub(/[[:space:]]/,"",$2); print $2}' || true)"
+
+if [[ "$CURRENT_HOST" == "$PRIMARY" ]]; then
   echo "$(ts) INFO: primary unchanged (${PRIMARY})" >> "$LOG"
   exit 0
 fi
 
-# 4) conf 업데이트 (pg1-host 라인 교체)
 cp -a "$CONF" "${CONF}.bak.$(date +%F_%H%M%S)"
 
-# pg1-host가 있으면 교체, 없으면 [global] 아래에 추가
+# pg1-host update
 if grep -qE '^[[:space:]]*pg1-host[[:space:]]*=' "$CONF"; then
   sed -i -E "s|^[[:space:]]*pg1-host[[:space:]]*=.*$|pg1-host=${PRIMARY}|g" "$CONF"
 else
-  # [global] 섹션 바로 아래에 삽입 (없으면 맨 위에 삽입)
+  # add under [global] if possible
   if grep -qE '^\[global\]' "$CONF"; then
     awk -v p="pg1-host=${PRIMARY}" '
       BEGIN{done=0}
       /^\[global\]/{print; if(!done){print p; done=1; next}}
       {print}
-      END{if(!done){}}
     ' "$CONF" > "${CONF}.tmp" && mv "${CONF}.tmp" "$CONF"
   else
     printf "pg1-host=%s\n\n%s" "$PRIMARY" "$(cat "$CONF")" > "${CONF}.tmp" && mv "${CONF}.tmp" "$CONF"
   fi
 fi
 
-echo "$(ts) INFO: updated pg1-host: ${CURRENT:-<none>} -> ${PRIMARY}" >> "$LOG"
+echo "$(ts) INFO: updated pg1-host: ${CURRENT_HOST:-<none>} -> ${PRIMARY}" >> "$LOG"
 
-# 5) pgBackRest check로 즉시 검증
+# verify pgBackRest
 if pgbackrest --stanza="$STANZA" check >> "$LOG" 2>&1; then
   echo "$(ts) INFO: pgbackrest check OK (primary=${PRIMARY})" >> "$LOG"
   exit 0

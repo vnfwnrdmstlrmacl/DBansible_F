@@ -1,15 +1,9 @@
 ---
 # roles/backup/tasks/main.yml
 
-# -----------------------------
-# NFS Server (storageVM)
-# -----------------------------
 - import_tasks: nfs_server.yml
   when: inventory_hostname in groups.get('backup_server', [])
 
-# -----------------------------
-# NFS Client + pgBackRest (dbb)
-# -----------------------------
 - import_tasks: nfs_client.yml
   when: inventory_hostname in groups.get('backup_clients', [])
 
@@ -19,12 +13,20 @@
 - import_tasks: pgbackrest_config.yml
   when: inventory_hostname in groups.get('backup_clients', [])
 
+# (삭제) SSH known_hosts/bootstrap은 roles/ssh_bootstrap에서 처리
+# - import_tasks: pgbackrest_ssh_knownhosts.yml
+#   when: inventory_hostname in groups.get('backup_clients', [])
+
+# (삭제) DB 노드 authorized_keys 주입/검증은 roles/ssh_bootstrap에서 처리
+# - import_tasks: pgbackrest_ssh_root_access.yml
+#   when: inventory_hostname in groups.get('backup_clients', [])
+
+# SSH OK 이후에만 stanza/check 수행 (이제 ssh_bootstrap이 보장)
 - import_tasks: pgbackrest_stanza.yml
   when: inventory_hostname in groups.get('backup_clients', [])
 
 - import_tasks: pgbackrest_follow_primary.yml
   when: inventory_hostname in groups.get('backup_clients', [])
-
 
 - import_tasks: db_backup_cron.yml
   when: inventory_hostname in groups.get('backup_clients', [])

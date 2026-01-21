@@ -1,11 +1,14 @@
 ---
-- name: Create pgbackrest config dir
+# roles/backup/tasks/pgbackrest_config.yml
+
+- name: Create pgBackRest config dir
   ansible.builtin.file:
     path: /etc/pgbackrest
     state: directory
     owner: root
     group: root
     mode: "0755"
+  become: true
 
 - name: Render pgBackRest config
   ansible.builtin.template:
@@ -14,23 +17,41 @@
     owner: root
     group: root
     mode: "0644"
+  become: true
 
-# DB-B에서 postgres로 DB-A 접속할 때 비번을 .pgpass로 처리(권장)
-- name: Create postgres home
+- name: Ensure postgres home exists (for ssh/known_hosts/.pgpass)
   ansible.builtin.file:
     path: /var/lib/pgsql
     state: directory
     owner: postgres
     group: postgres
     mode: "0755"
-  ignore_errors: true
+  become: true
 
-- name: Install .pgpass for postgres
-  ansible.builtin.template:
-    src: pgpass.j2
+- name: Ensure postgres .ssh directory exists
+  ansible.builtin.file:
+    path: /var/lib/pgsql/.ssh
+    state: directory
+    owner: postgres
+    group: postgres
+    mode: "0700"
+  become: true
+
+# --------------------------------------------------------------------
+# .pgpass는 "SQL 접속" 용도로만 필요 (stanza-create 시 pgbackrest가 DB에 접속할 때 사용)
+# pgBackRest는 pg1-user=postgres 로 동작하므로 postgres 계정의 .pgpass를 만들어야 의미가 있음
+# --------------------------------------------------------------------
+- name: Install .pgpass for postgres (SQL auth for stanza/backup)
+  ansible.builtin.copy:
     dest: /var/lib/pgsql/.pgpass
     owner: postgres
     group: postgres
     mode: "0600"
-  ignore_errors: true
-
+    content: |
+      {{ pg_vip_host }}:{{ pg_vip_port | default(5432) }}:*:{{ pg_backup_db_user | default('postgres') }}:{{ pg_backup_db_password }}
+  when:
+    - pg_vip_host is defined
+    - (pg_vip_host | string | length) > 0
+    - pg_backup_db_password is defined
+    - (pg_backup_db_password | string | length) > 0
+  become: true

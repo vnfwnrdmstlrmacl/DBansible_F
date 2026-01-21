@@ -16,9 +16,7 @@ pgbackrest_retention_full: 7
 pgbackrest_process_max: 2
 pgbackrest_log_level_console: "info"
 
-# -----------------------------
 # DB 논리 접속(VIP): SQL/테스트용
-# -----------------------------
 pg_vip_host: "10.2.2.254"
 pg_vip_port: 5432
 
@@ -27,24 +25,35 @@ pg_data_path: "/var/lib/pgsql/patroni"
 
 # -----------------------------
 # pgBackRest 물리백업 대상(SSH 대상): 실제 DB 노드
-#  - follow-primary(타이머/스크립트)로 이 값이 자동 갱신되게 만들 예정
-#  - 초기값은 후보 중 하나로 세팅(예: db-a)
 # -----------------------------
 pgbackrest_pg1_host_initial: "10.2.3.2"
-pgbackrest_pg1_user: "postgres"
 
-# -----------------------------
-# Patroni REST로 Primary 판별할 DB 노드 후보 목록 (실제 DB 노드 IP)
-# -----------------------------
+# SSH 로그인 계정(root)
+pgbackrest_pg1_host_user: "root"
+
+# DB 유저는 보통 postgres 유지
+pg_backup_db_user: "postgres"
+
+# Patroni REST로 Primary 판별할 DB 노드 후보 목록
 patroni_nodes:
   - "10.2.3.2"
   - "10.2.3.3"
 patroni_rest_port: 8008
 patroni_master_path: "/master"
 
-# -----------------------------
 # DB 계정/비번 (.pgpass 및 필요 시 사용)
-# -----------------------------
-pg_backup_db_user: "postgres"
 pg_backup_db_password: "CHANGE_ME"
+
+# -----------------------------
+# SSH bootstrap role 변수 (dbb -> db_cluster)
+# -----------------------------
+ssh_bootstrap_target_group: "db"             # inventory에 추가한 db 그룹
+ssh_bootstrap_user: "root"
+ssh_bootstrap_key_path: "/root/.ssh/id_ed25519"
+ssh_bootstrap_known_hosts: "/root/.ssh/known_hosts"
+ssh_bootstrap_password_enabled: true
+ssh_bootstrap_password: "ansible"            # 운영이면 vault로 빼는 게 정석
+
+# pgBackRest도 동일 키를 강제 사용
+pgbackrest_ssh_key_path: "/root/.ssh/id_ed25519"
 

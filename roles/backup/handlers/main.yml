@@ -3,3 +3,16 @@
   ansible.builtin.command: exportfs -ra
   changed_when: false
 
+
+- name: Restart sshd on DB nodes
+  ansible.builtin.service:
+    name: sshd
+    state: restarted
+  become: true
+  
+
+- name: Restart sshd (db nodes)
+  ansible.builtin.service:
+    name: sshd
+    state: restarted
+  become: true

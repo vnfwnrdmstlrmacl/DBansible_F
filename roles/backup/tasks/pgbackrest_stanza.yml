@@ -1,20 +1,11 @@
 ---
 # roles/backup/tasks/pgbackrest_stanza.yml
 
-- name: Install .pgpass for postgres on dbb (no prompt)
-  ansible.builtin.copy:
-    dest: /root/.pgpass
-    mode: "0600"
-    content: |
-      {{ pg_primary_host }}:{{ pg_primary_port | default(5432) }}:*:{{ pg_backup_db_user | default('postgres') }}:{{ pg_backup_db_password }}
-  when:
-    - pg_backup_db_password is defined
-    - (pg_backup_db_password | string | length) > 0
-
 - name: Ensure pgBackRest config exists
   ansible.builtin.stat:
     path: /etc/pgbackrest/pgbackrest.conf
   register: pgbr_conf
+  become: true
 
 - name: Abort if pgBackRest config is missing
   ansible.builtin.fail:
@@ -22,34 +13,71 @@
   when: not pgbr_conf.stat.exists
 
 # ------------------------------------------------------------
-# 1) Stanza 존재 여부 확인 (없으면 stanza-create 필요)
+# 0) Fail-fast: SSH connectivity pre-check (must succeed)
+# ------------------------------------------------------------
+- name: Pre-check SSH to pg1-host (must succeed before stanza/check)
+  ansible.builtin.command: >
+    ssh -i {{ pgbackrest_ssh_key_path | default('/root/.ssh/id_ed25519') }}
+    -o IdentitiesOnly=yes -o BatchMode=yes -o ConnectTimeout=5
+    {{ pgbackrest_pg1_host_user | default('root') }}@{{ pgbackrest_pg1_host | default(pgbackrest_pg1_host_initial | default(patroni_nodes[0])) }}
+    "echo OK"
+  register: precheck_ssh
+  changed_when: false
+  become: true
+
+# ------------------------------------------------------------
+# 1) Stanza 존재 여부 확인
 # ------------------------------------------------------------
 - name: Check if pgBackRest stanza already exists
   ansible.builtin.command: pgbackrest --stanza={{ pgbackrest_stanza }} info
   register: pgbr_info
   changed_when: false
   failed_when: false
+  become: true
 
 - name: Set fact - stanza_missing
   ansible.builtin.set_fact:
     stanza_missing: "{{ ('No stanzas exist' in (pgbr_info.stdout | default(''))) or (pgbr_info.rc | int != 0) }}"
 
 # ------------------------------------------------------------
-# 2) Stanza 없을 때: stanza-create 수행
+# 2) Stanza 없을 때: stanza-create
 # ------------------------------------------------------------
 - name: Create pgBackRest stanza (one-time init)
   ansible.builtin.command: pgbackrest --stanza={{ pgbackrest_stanza }} stanza-create
   register: stanza_create
   changed_when: true
   when: stanza_missing | bool
+  become: true
 
 # ------------------------------------------------------------
-# 3) pgBackRest 자체로 검증 (psql 불필요)
-#    - pgbackrest check는 DB 접근/설정/권한 관점에서 가장 정확한 검증
+# 3) 검증: pgbackrest check (async로 hang 방지)
 # ------------------------------------------------------------
-- name: Validate pgBackRest can reach primary and repo (pgbackrest check)
+- name: Validate pgBackRest can reach DB and repo (pgbackrest check) [async]
   ansible.builtin.command: pgbackrest --stanza={{ pgbackrest_stanza }} check
-  register: pgbr_check
+  register: pgbr_check_job
+  async: 120
+  poll: 0
+  changed_when: false
+  become: true
+
+- name: Wait for pgbackrest check to finish
+  ansible.builtin.async_status:
+    jid: "{{ pgbr_check_job.ansible_job_id }}"
+  register: pgbr_check_result
+  until: pgbr_check_result.finished
+  retries: 40
+  delay: 3
   changed_when: false
 
+- name: Fail if pgbackrest check failed
+  ansible.builtin.fail:
+    msg: |
+      pgbackrest check failed (rc={{ pgbr_check_result.rc }})
+
+      STDOUT:
+      {{ pgbr_check_result.stdout | default('') }}
+
+      STDERR:
+      {{ pgbr_check_result.stderr | default('') }}
+  when: (pgbr_check_result.rc | int) != 0
 
