@@ -16,7 +16,9 @@ pgbackrest_retention_full: 7
 pgbackrest_process_max: 2
 pgbackrest_log_level_console: "info"
 
-# DB 논리 접속(VIP): SQL/테스트용
+# -----------------------------
+# DB 논리 접속(VIP): SQL/테스트용 (pgBackRest와는 별개)
+# -----------------------------
 pg_vip_host: "10.2.2.254"
 pg_vip_port: 5432
 
@@ -25,35 +27,49 @@ pg_data_path: "/var/lib/pgsql/patroni"
 
 # -----------------------------
 # pgBackRest 물리백업 대상(SSH 대상): 실제 DB 노드
+# - follow-primary가 주기적으로 pg1-host를 갱신하지만,
+#   초기 1회 stanza-create/check를 위해 "초기값"을 둔다.
 # -----------------------------
 pgbackrest_pg1_host_initial: "10.2.3.2"
 
-# SSH 로그인 계정(root)
+# SSH 로그인 계정(root) - DB 노드로 SSH 들어갈 계정
 pgbackrest_pg1_host_user: "root"
 
-# DB 유저는 보통 postgres 유지
+# PostgreSQL OS/DB user (보통 postgres)
 pg_backup_db_user: "postgres"
 
+# -----------------------------
 # Patroni REST로 Primary 판별할 DB 노드 후보 목록
+# -----------------------------
 patroni_nodes:
   - "10.2.3.2"
   - "10.2.3.3"
 patroni_rest_port: 8008
 patroni_master_path: "/master"
 
+# -----------------------------
 # DB 계정/비번 (.pgpass 및 필요 시 사용)
+# -----------------------------
 pg_backup_db_password: "CHANGE_ME"
 
 # -----------------------------
 # SSH bootstrap role 변수 (dbb -> db_cluster)
+# - IMPORTANT: inventory에 실제 존재하는 그룹명으로 맞춰야 함
 # -----------------------------
-ssh_bootstrap_target_group: "db"             # inventory에 추가한 db 그룹
+ssh_bootstrap_target_group: "db_cluster"
 ssh_bootstrap_user: "root"
+
+# dbb(root)에서 생성/사용하는 키
 ssh_bootstrap_key_path: "/root/.ssh/id_ed25519"
 ssh_bootstrap_known_hosts: "/root/.ssh/known_hosts"
-ssh_bootstrap_password_enabled: true
-ssh_bootstrap_password: "ansible"            # 운영이면 vault로 빼는 게 정석
 
-# pgBackRest도 동일 키를 강제 사용
+# 최초 1회 키 주입을 비번으로 처리할지 여부 (sshpass 필요)
+ssh_bootstrap_password_enabled: true
+ssh_bootstrap_password: "ansible"   # 운영이면 vault로 분리
+
+# -----------------------------
+# pgBackRest도 동일 키를 강제 사용 (root 실행 기준)
+# -----------------------------
 pgbackrest_ssh_key_path: "/root/.ssh/id_ed25519"
+pgbackrest_ssh_known_hosts: "/root/.ssh/known_hosts"
 
