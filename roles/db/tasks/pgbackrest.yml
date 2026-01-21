@@ -1,107 +1,142 @@
 ---
 # roles/db/tasks/pgbackrest.yml
-# NOTE: pgBackRest config/ssh handling is managed by roles/backup.
-# This file only installs packages and mounts NFS on db-b, and does NOT overwrite /etc/pgbackrest/pgbackrest.conf.
+# 목표:
+# - db_cluster(db-a/db-s)에 pgbackrest 바이너리 설치를 "재검증 기반"으로 보장
+# - roles/backup은 dbb에서 conf/ssh wrapper/팔로우 프라이머리 제어 담당
 
-- name: Install base packages for backup (db-b only)
+- name: "Check pgbackrest exists (db_cluster) - pre"
+  ansible.builtin.command: "bash -lc 'command -v pgbackrest'"
+  register: pgbr_pre
+  changed_when: false
+  failed_when: false
+  when: inventory_hostname in groups.get('db_cluster', [])
+
+- name: "Install prereqs (db_cluster) when pgbackrest missing"
   ansible.builtin.dnf:
     name:
-      - nfs-utils
       - curl
       - ca-certificates
       - dnf-plugins-core
     state: present
-  when: inventory_hostname == 'db-b'
+  register: _dnf_prereq
+  retries: 3
+  delay: 3
+  until: _dnf_prereq is succeeded
+  when:
+    - inventory_hostname in groups.get('db_cluster', [])
+    - pgbr_pre.rc != 0
 
-- name: Enable CRB repo (db-b only)
-  ansible.builtin.command: dnf config-manager --set-enabled crb
-  register: crb_enable
+- name: "Enable CRB repo (best-effort, db_cluster)"
+  ansible.builtin.command: "dnf -y config-manager --set-enabled crb"
+  register: _crb
   changed_when: false
   failed_when: false
-  when: inventory_hostname == 'db-b'
+  when:
+    - inventory_hostname in groups.get('db_cluster', [])
+    - pgbr_pre.rc != 0
 
-- name: Install EPEL release (db-b only)
+- name: "Install EPEL release (best-effort, db_cluster)"
   ansible.builtin.dnf:
     name: epel-release
     state: present
-  when: inventory_hostname == 'db-b'
+  register: _epel
+  retries: 3
+  delay: 3
+  until: _epel is succeeded
+  failed_when: false
+  when:
+    - inventory_hostname in groups.get('db_cluster', [])
+    - pgbr_pre.rc != 0
 
-- name: Refresh dnf cache (db-b only)
+- name: "Refresh dnf cache (best-effort, db_cluster)"
   ansible.builtin.dnf:
     update_cache: true
-  when: inventory_hostname == 'db-b'
+  register: _cache1
+  retries: 3
+  delay: 3
+  until: _cache1 is succeeded
+  failed_when: false
+  when:
+    - inventory_hostname in groups.get('db_cluster', [])
+    - pgbr_pre.rc != 0
 
-- name: Try install pgBackRest from current repos (db-b only)
+# -------------------------
+# 1차 설치 시도
+# -------------------------
+- name: "Try install pgbackrest from current repos (db_cluster)"
   ansible.builtin.dnf:
-    name:
-      - pgbackrest
+    name: pgbackrest
     state: present
   register: pgbr_try
   failed_when: false
-  when: inventory_hostname == 'db-b'
+  when:
+    - inventory_hostname in groups.get('db_cluster', [])
+    - pgbr_pre.rc != 0
 
-- name: Install PGDG repo rpm if pgBackRest not available (db-b only)
+- name: "Re-check pgbackrest exists (db_cluster) - after try"
+  ansible.builtin.command: "bash -lc 'command -v pgbackrest'"
+  register: pgbr_after_try
+  changed_when: false
+  failed_when: false
+  when:
+    - inventory_hostname in groups.get('db_cluster', [])
+    - pgbr_pre.rc != 0
+
+- name: "Set fact: pgbackrest_missing_after_try (db_cluster)"
+  ansible.builtin.set_fact:
+    pgbackrest_missing_after_try: "{{ (pgbr_pre.rc != 0) and (pgbr_after_try.rc != 0) }}"
+  when: inventory_hostname in groups.get('db_cluster', [])
+
+# -------------------------
+# PGDG fallback (재검증 기반)
+# -------------------------
+- name: "Install PGDG repo rpm (db_cluster) when still missing"
   ansible.builtin.dnf:
     name: "https://download.postgresql.org/pub/repos/yum/reporpms/EL-9-x86_64/pgdg-redhat-repo-latest.noarch.rpm"
     state: present
     disable_gpg_check: true
+  register: _pgdg
+  retries: 3
+  delay: 3
+  until: _pgdg is succeeded
   when:
-    - inventory_hostname == 'db-b'
-    - pgbr_try is failed or ('No package pgbackrest available' in (pgbr_try.msg | default('')))
+    - inventory_hostname in groups.get('db_cluster', [])
+    - pgbackrest_missing_after_try | default(false)
 
-- name: Refresh dnf cache after PGDG repo (db-b only)
+- name: "Refresh dnf cache after PGDG (db_cluster)"
   ansible.builtin.dnf:
     update_cache: true
+  register: _cache2
+  retries: 3
+  delay: 3
+  until: _cache2 is succeeded
   when:
-    - inventory_hostname == 'db-b'
-    - pgbr_try is failed or ('No package pgbackrest available' in (pgbr_try.msg | default('')))
+    - inventory_hostname in groups.get('db_cluster', [])
+    - pgbackrest_missing_after_try | default(false)
 
-- name: Install pgBackRest from PGDG (db-b only)
+- name: "Install pgbackrest after PGDG (db_cluster)"
   ansible.builtin.dnf:
-    name:
-      - pgbackrest
+    name: pgbackrest
     state: present
+  register: pgbr_pgdg
+  retries: 3
+  delay: 5
+  until: pgbr_pgdg is succeeded
   when:
-    - inventory_hostname == 'db-b'
-    - pgbr_try is failed or ('No package pgbackrest available' in (pgbr_try.msg | default('')))
+    - inventory_hostname in groups.get('db_cluster', [])
+    - pgbackrest_missing_after_try | default(false)
 
-- name: Verify mount.nfs helper exists (db-b only)
-  ansible.builtin.stat:
-    path: /sbin/mount.nfs
-  register: mount_nfs_helper
+# -------------------------
+# 최종 검증 (여기서 실패하면 '진짜로' repo/DNS 문제임)
+# -------------------------
+- name: "Verify pgbackrest command exists (db_cluster) - final"
+  ansible.builtin.command: "bash -lc 'command -v pgbackrest && pgbackrest version'"
+  register: pgbr_final
   changed_when: false
-  when: inventory_hostname == 'db-b'
+  when: inventory_hostname in groups.get('db_cluster', [])
 
-- name: Fail if NFS helper missing (db-b only)
-  ansible.builtin.fail:
-    msg: "NFS mount helper /sbin/mount.nfs not found. nfs-utils must be installed successfully."
-  when:
-    - inventory_hostname == 'db-b'
-    - not mount_nfs_helper.stat.exists
+- name: "Show pgbackrest version (db_cluster)"
+  ansible.builtin.debug:
+    msg: "{{ pgbr_final.stdout }}"
+  when: inventory_hostname in groups.get('db_cluster', [])
 
-- name: Create mount point (db-b only)
-  ansible.builtin.file:
-    path: "{{ nfs_mount }}"
-    state: directory
-    mode: "0755"
-  when: inventory_hostname == 'db-b'
-
-- name: Mount NFS repo (db-b only)
-  ansible.builtin.mount:
-    path: "{{ nfs_mount }}"
-    src: "{{ nfs_server }}:{{ nfs_export }}"
-    fstype: nfs
-    opts: "rw,_netdev,vers=4.1"
-    state: mounted
-  when: inventory_hostname == 'db-b'
-
-# DO NOT render /etc/pgbackrest/pgbackrest.conf here.
-# roles/backup is the single source of truth for pgBackRest config.
-
-- name: Configure cron for full backup (db-b only)
-  ansible.builtin.cron:
-    name: "pgBackRest Full Backup"
-    minute: "0"
-    hour: "1"
-    job: "pgbackrest --stanza={{ pgbackrest_stanza | default('main') }} --type=full backup"
-  when: inventory_hostname == 'db-b'

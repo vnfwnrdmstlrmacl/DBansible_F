@@ -6,12 +6,6 @@
 - import_tasks: firewall.yml
 
 # -------------------------------
-# ETCD nodes only
-# -------------------------------
-#- import_tasks: etcd.yml
-# when: inventory_hostname in groups.get('etcd', [])
-
-# -------------------------------
 # DB nodes only (PostgreSQL/Patroni)
 # -------------------------------
 - import_tasks: postgres.yml
@@ -20,8 +14,9 @@
 - import_tasks: patroni.yml
   when: inventory_hostname in groups.get('db_cluster', [])
 
-
-# (선택) 기타 구성들
+# -------------------------------
+# pgBackRest packages (db_cluster)
+# -------------------------------
 - import_tasks: pgbackrest.yml
   when: inventory_hostname in groups.get('db_cluster', [])
 
