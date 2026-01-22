@@ -1,7 +1,30 @@
 ---
 # roles/backup/tasks/nfs_server.yml
-# NFS server (backup_server: storageVM)
+# NFS server (storageVM): export pgBackRest repository
+# NOTE: NAT 유지 환경용 - 10.2.3.0/24 + 10.2.2.0/24 모두 exports 허용
 
+- name: Ensure this runs only on storage/backup_server hosts (storageVM)
+  ansible.builtin.assert:
+    that:
+      - inventory_hostname in groups.get('storage', []) or inventory_hostname in groups.get('storageVM', []) or inventory_hostname in groups.get('backup_server', [])
+    fail_msg: "nfs_server.yml must run only on storageVM (backup_server) hosts."
+
+- name: Set NFS export defaults (storageVM)
+  ansible.builtin.set_fact:
+    _nfs_export_dir: "{{ nfs_export | default(backup_nfs_export_dir | default('/exports/pgbackrest')) }}"
+    # NAT 유지 시: 서버가 클라이언트를 proxy 대역(10.2.2.0/24)로 볼 수 있으므로 둘 다 허용
+    _nfs_clients_list:
+      - "{{ backup_nfs_clients_cidr_db | default('10.2.3.0/24') }}"
+      - "{{ backup_nfs_clients_cidr_proxy | default('10.2.2.0/24') }}"
+    # 권한 모드: 기본은 랩용 0777
+    _export_mode: "{{ backup_nfs_export_mode | default('0777') }}"
+    _export_owner: "{{ backup_nfs_export_owner | default('postgres') }}"
+    _export_group: "{{ backup_nfs_export_group | default('postgres') }}"
+  changed_when: false
+
+# ------------------------------------------------------------
+# Packages
+# ------------------------------------------------------------
 - name: Install NFS server packages
   ansible.builtin.dnf:
     name:
@@ -10,13 +33,16 @@
       - firewalld
     state: present
 
-- name: Enable and start firewalld
+# ------------------------------------------------------------
+# Services
+# ------------------------------------------------------------
+- name: Ensure firewalld enabled and started (storageVM)
   ansible.builtin.service:
     name: firewalld
     state: started
     enabled: true
 
-- name: Enable and start NFS services
+- name: Enable and start NFS services (storageVM)
   ansible.builtin.service:
     name: "{{ item }}"
     state: started
@@ -25,14 +51,16 @@
     - rpcbind
     - nfs-server
 
-# (권장) storageVM에서도 postgres 유저/그룹 보장 (export dir 소유권용)
-- name: Ensure postgres group exists (backup_server)
+# ------------------------------------------------------------
+# Ensure postgres user/group exists (avoids chown/user lookup issues)
+# ------------------------------------------------------------
+- name: Ensure postgres group exists (storageVM)
   ansible.builtin.group:
     name: postgres
     system: true
     state: present
 
-- name: Ensure postgres user exists (backup_server)
+- name: Ensure postgres user exists (storageVM)
   ansible.builtin.user:
     name: postgres
     group: postgres
@@ -41,23 +69,38 @@
     create_home: false
     state: present
 
-- name: Ensure export directory exists
+# ------------------------------------------------------------
+# Export directory + permissions
+# ------------------------------------------------------------
+- name: Ensure export directory exists (storageVM)
   ansible.builtin.file:
-    path: "{{ nfs_export | default(backup_nfs_export_dir | default('/exports/pgbackrest')) }}"
+    path: "{{ _nfs_export_dir }}"
     state: directory
-    owner: postgres
-    group: postgres
-    mode: "0755"
+    owner: "{{ _export_owner }}"
+    group: "{{ _export_group }}"
+    mode: "{{ _export_mode }}"
 
-- name: Configure /etc/exports
+# ------------------------------------------------------------
+# /etc/exports with BOTH CIDRs allowed
+# ------------------------------------------------------------
+- name: Render /etc/exports (storageVM) - allow DB cidr + Proxy cidr (NAT friendly)
   ansible.builtin.template:
     src: exports.j2
     dest: /etc/exports
+    owner: root
+    group: root
     mode: "0644"
   notify: Reload exports
 
-# 핵심: NFS 포트 오픈
-- name: Open NFS services in firewalld
+# Apply immediately in same run
+- name: Apply exports now (storageVM)
+  ansible.builtin.command: exportfs -rav
+  changed_when: false
+
+# ------------------------------------------------------------
+# Open firewall services for NFS
+# ------------------------------------------------------------
+- name: Open NFS related services in firewalld (storageVM)
   ansible.posix.firewalld:
     service: "{{ item }}"
     permanent: true
@@ -68,8 +111,8 @@
     - mountd
     - rpc-bind
 
-# (선택) ping 테스트를 위해 ICMP 허용 (public zone에서 막히는 환경 대비)
-- name: Allow ICMP echo-request (optional)
+# Optional ICMP
+- name: Allow ICMP echo-request (optional) (storageVM)
   ansible.posix.firewalld:
     rich_rule: 'rule protocol value="icmp" accept'
     permanent: true
@@ -77,17 +120,15 @@
     state: enabled
   failed_when: false
 
-- name: Verify NFS port listening
+# ------------------------------------------------------------
+# Verification
+# ------------------------------------------------------------
+- name: Verify exports (storageVM)
   ansible.builtin.shell: |
-    ss -lntp | egrep '(:2049|:111)\b' || true
+    set -euo pipefail
     exportfs -v || true
+    cat /etc/exports || true
   args:
     executable: /bin/bash
   changed_when: false
-
-- name: Configure /etc/exports
-  ansible.builtin.template:
-    src: exports.j2
-    dest: /etc/exports
-  notify: Reload exports
 

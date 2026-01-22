@@ -7,6 +7,9 @@
 backup_nfs_export_dir: "/exports/pgbackrest"
 backup_nfs_mount_point: "/var/lib/pgbackrest"
 pgbackrest_repo_path: "/var/lib/pgbackrest/repo1"
+backup_nfs_export_owner: "root"
+backup_nfs_export_group: "root"
+backup_nfs_export_mode: "0755"
 
 # -----------------------------
 # pgBackRest
