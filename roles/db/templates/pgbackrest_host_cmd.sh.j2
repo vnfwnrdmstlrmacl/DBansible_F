@@ -1,0 +1,36 @@
+cat > roles/db/templates/pgbackrest_host_cmd.sh.j2 <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+# pgBackRest host-cmd wrapper
+# - If invoked with pgBackRest remote-process arguments, run pgbackrest directly.
+# - Otherwise, run ssh with sanitized arguments.
+
+SSH_BIN="/usr/bin/ssh"
+PGBIN="/usr/bin/pgbackrest"
+
+is_remote=0
+for a in "$@"; do
+  aa="${a//$'\r'/}"
+  if [[ "$aa" == --remote-type=* ]] || [[ "$aa" == *":remote" ]] || [[ "$aa" == --process=* ]]; then
+    is_remote=1
+    break
+  fi
+done
+
+if [[ "$is_remote" -eq 1 ]]; then
+  exec "${PGBIN}" "$@"
+fi
+
+ARGS=()
+for a in "$@"; do
+  a="${a//$'\r'/}"
+  if [[ "$a" == "-" || "$a" == "--" ]]; then
+    continue
+  fi
+  ARGS+=("$a")
+done
+
+exec "${SSH_BIN}" -i /root/.ssh/id_ed25519 -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/root/.ssh/known_hosts -o LogLevel=ERROR -o ConnectTimeout=5 "${ARGS[@]}"
+EOF
+

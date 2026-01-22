@@ -1,6 +1,8 @@
 ---
+# roles/db/tasks/packages.yml
+
 - name: Install base packages
-  dnf:
+  ansible.builtin.dnf:
     name:
       - vim
       - curl
@@ -12,8 +14,79 @@
     state: present
 
 - name: Enable and start chronyd
-  service:
+  ansible.builtin.service:
     name: chronyd
     state: started
     enabled: true
+
+# -------------------------------------------------------------------
+# pgBackRest: host-cmd wrapper (db_cluster)
+# - MUST exist on db_cluster nodes because pgBackRest remote process can
+#   invoke host-cmd on db nodes.
+# - DO NOT use templates here to avoid "template not found" issues.
+# - Also remove legacy /usr/local/bin/pgbackrest_ssh to prevent confusion.
+# -------------------------------------------------------------------
+
+- name: Remove legacy pgBackRest ssh wrapper on db_cluster (must not exist)
+  ansible.builtin.file:
+    path: /usr/local/bin/pgbackrest_ssh
+    state: absent
+  when: inventory_hostname in groups.get('db_cluster', [])
+
+- name: Force-install pgBackRest host-cmd wrapper on db_cluster (overwrite always)
+  ansible.builtin.copy:
+    dest: /usr/local/bin/pgbackrest_host_cmd
+    owner: root
+    group: root
+    mode: "0755"
+    content: |
+      #!/usr/bin/env bash
+      set -euo pipefail
+
+      SSH_BIN="/usr/bin/ssh"
+      PGBIN="/usr/bin/pgbackrest"
+
+      # If pgBackRest calls this as a remote process, run pgbackrest directly.
+      # remote mode indicators:
+      #   --remote-type=pg / --remote-type=repo / --process=N / ...:remote
+      for a in "$@"; do
+        a="${a//$'\r'/}"
+        case "$a" in
+          --remote-type=*|--process=*|*:remote)
+            exec "${PGBIN}" "$@"
+            ;;
+        esac
+      done
+
+      # SSH mode: sanitize args to avoid stray '-' / '--' and CR
+      ARGS=()
+      for a in "$@"; do
+        a="${a//$'\r'/}"
+        if [[ "$a" == "-" || "$a" == "--" ]]; then
+          continue
+        fi
+        ARGS+=("$a")
+      done
+
+      exec "${SSH_BIN}" -i /root/.ssh/id_ed25519 \
+        -o IdentitiesOnly=yes \
+        -o PreferredAuthentications=publickey \
+        -o PubkeyAuthentication=yes \
+        -o StrictHostKeyChecking=accept-new \
+        -o UserKnownHostsFile=/root/.ssh/known_hosts \
+        -o LogLevel=ERROR \
+        -o ConnectTimeout=5 \
+        -o ControlMaster=no \
+        -o ControlPersist=no \
+        "${ARGS[@]}"
+  when: inventory_hostname in groups.get('db_cluster', [])
+
+- name: Strip CRLF on pgbackrest_host_cmd (db_cluster)
+  ansible.builtin.shell: |
+    set -euo pipefail
+    sed -i 's/\r$//' /usr/local/bin/pgbackrest_host_cmd
+  args:
+    executable: /bin/bash
+  changed_when: false
+  when: inventory_hostname in groups.get('db_cluster', [])
 

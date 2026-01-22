@@ -15,7 +15,6 @@
     - name: Load proxy secret vars (vault)
       ansible.builtin.include_vars:
         file: "{{ proxy_vault_vars_file }}"
-      no_log: true
 
   roles:
     - proxy
@@ -38,14 +37,13 @@
 
   roles:
     - etcd
-
   tags: ['etcd']
 
 
 ###############################################################################
-# 3. PostgreSQL / Patroni infra (db_cluster)
+# 3. PostgreSQL / Patroni infra
 ###############################################################################
-- name: Build DB Infra (PostgreSQL / Patroni)
+- name: Build DB Infra (PostgreSQL / Patroni / pgBackRest pkg on DB nodes)
   hosts: db_cluster
   serial: 1
   gather_facts: true
@@ -59,41 +57,17 @@
     - name: Load DB secret vars (vault)
       ansible.builtin.include_vars:
         file: "{{ db_vault_vars_file }}"
-      no_log: true
 
   roles:
     - db
 
-  tags: ['db_infra', 'db']
+  tags: ['db_infra']
 
 
 ###############################################################################
-# 4. SSH bootstrap (dbb -> db_cluster)
-# - pgBackRest가 follow-primary로 동작하려면,
-#   dbb -> db-a/db-s 로 root SSH가 "항상" 무중단으로 되어 있어야 함
+# 4. Backup node / storage
 ###############################################################################
-- name: Sync SSH keys (dbb -> db_cluster)
-  hosts: db_backup
-  gather_facts: false
-  become: true
-
-  pre_tasks:
-    - name: Load DB non-secret vars
-      ansible.builtin.include_vars:
-        file: "{{ playbook_dir }}/group_vars/db/main.yml"
-
-  roles:
-    - ssh
-
-  tags: ['ssh', 'bootstrap']
-
-
-###############################################################################
-# 5. Backup / Storage (NFS server + backup client pgBackRest config)
-# - backup_server: storageVM (NFS export)
-# - backup_clients: dbb (pgBackRest client + repo mount + config)
-###############################################################################
-- name: Build Backup / Storage
+- name: Build Backup / Storage (pgBackRest config lives ONLY on dbb)
   hosts: backup_server:backup_clients
   gather_facts: true
   become: true
@@ -106,7 +80,6 @@
     - name: Load DB secret vars (vault)
       ansible.builtin.include_vars:
         file: "{{ db_vault_vars_file }}"
-      no_log: true
 
   roles:
     - backup
@@ -115,7 +88,7 @@
 
 
 ###############################################################################
-# 6. DB Objects (schema/tables/grants) - dbT
+# 5. DB Objects
 ###############################################################################
 - name: Build DB Objects (dbT)
   hosts: db_cluster
@@ -130,7 +103,6 @@
     - name: Load DB secret vars (vault)
       ansible.builtin.include_vars:
         file: "{{ db_vault_vars_file }}"
-      no_log: true
 
   roles:
     - dbT

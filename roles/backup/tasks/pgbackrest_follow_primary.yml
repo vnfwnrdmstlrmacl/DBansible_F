@@ -1,47 +1,14 @@
 ---
-# Deploy primary-follow mechanism on dbb (backup client)
+# roles/backup/tasks/pgbackrest_follow_primary.yml
 
-- name: Install curl for Patroni REST probing
-  ansible.builtin.dnf:
-    name: curl
-    state: present
-  become: true
+# main.yml에서 backup_clients에만 import_tasks 하므로 여기서는 assert로 실패시키지 않는다.
 
-- name: Deploy pgbackrest follow-primary script
-  ansible.builtin.template:
-    src: pgbackrest_follow_primary.sh.j2
-    dest: /usr/local/bin/pgbackrest_follow_primary.sh
-    mode: "0755"
-  become: true
-
-- name: Deploy systemd service for follow-primary
-  ansible.builtin.template:
-    src: pgbackrest-follow-primary.service.j2
-    dest: /etc/systemd/system/pgbackrest-follow-primary.service
-    mode: "0644"
-  become: true
-
-- name: Deploy systemd timer for follow-primary
-  ansible.builtin.template:
-    src: pgbackrest-follow-primary.timer.j2
-    dest: /etc/systemd/system/pgbackrest-follow-primary.timer
-    mode: "0644"
-  become: true
-
-- name: systemd daemon-reload
-  ansible.builtin.systemd:
-    daemon_reload: true
-  become: true
-
-- name: Enable and start follow-primary timer
-  ansible.builtin.systemd:
-    name: pgbackrest-follow-primary.timer
-    enabled: true
-    state: started
-  become: true
-
-- name: Run follow-primary once immediately
-  ansible.builtin.command: /usr/local/bin/pgbackrest_follow_primary.sh
+- name: Validate Patroni leader detection (dry-run)
+  ansible.builtin.command:
+    argv: ["/usr/local/bin/pgbackrest_follow_primary", "whoisprimary"]
+  register: leader
   changed_when: false
-  become: true
 
+- name: Print detected leader
+  ansible.builtin.debug:
+    var: leader.stdout

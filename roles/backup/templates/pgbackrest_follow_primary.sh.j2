@@ -1,67 +1,52 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-STANZA="{{ pgbackrest_stanza }}"
-CONF="/etc/pgbackrest/pgbackrest.conf"
-LOG="/var/log/pgbackrest/follow_primary.log"
-
+STANZA="{{ pgbackrest_stanza | default('main') }}"
 PATRONI_PORT="{{ patroni_rest_port | default(8008) }}"
 MASTER_PATH="{{ patroni_master_path | default('/master') }}"
 
-NODES=(
-{% for ip in patroni_nodes %}
-  "{{ ip }}"
-{% endfor %}
-)
+DBA="{{ hostvars['db-a'].ansible_host | default('10.2.3.2') }}"
+DBS="{{ hostvars['db-s'].ansible_host | default('10.2.3.3') }}"
 
-mkdir -p /var/log/pgbackrest
-touch "$LOG"
-chmod 0644 "$LOG"
+die() { echo "[FATAL] $*" >&2; exit 1; }
 
-ts() { date '+%F %T'; }
-
-echo "$(ts) INFO: follow-primary run begin" >> "$LOG"
-
-PRIMARY=""
-for ip in "${NODES[@]}"; do
-  if curl -sSf -o /dev/null --max-time 2 "http://${ip}:${PATRONI_PORT}${MASTER_PATH}"; then
-    PRIMARY="$ip"
-    break
+detect_primary() {
+  if curl -fsS --max-time 2 "http://${DBA}:${PATRONI_PORT}${MASTER_PATH}" >/dev/null; then
+    echo "${DBA}"
+    return 0
   fi
-done
+  if curl -fsS --max-time 2 "http://${DBS}:${PATRONI_PORT}${MASTER_PATH}" >/dev/null; then
+    echo "${DBS}"
+    return 0
+  fi
+  return 1
+}
 
-if [[ -z "$PRIMARY" ]]; then
-  echo "$(ts) ERROR: no primary found via Patroni REST (${MASTER_PATH})" >> "$LOG"
-  exit 2
+ACTION="${1:-}"
+if [[ -z "${ACTION}" ]]; then
+  die "Usage: $0 {whoisprimary|stanza-create|check|backup|restore|info} [pgbackrest args...]"
 fi
+shift || true
 
-if [[ ! -f "$CONF" ]]; then
-  echo "$(ts) ERROR: missing config: $CONF" >> "$LOG"
-  exit 3
-fi
+case "${ACTION}" in
+  whoisprimary)
+    PRIMARY="$(detect_primary)" || die "No Patroni primary detected"
+    echo "${PRIMARY}"
+    ;;
 
-CURRENT="$(grep -E '^[[:space:]]*pg1-host[[:space:]]*=' "$CONF" | tail -n 1 | awk -F= '{gsub(/[[:space:]]/,"",$2); print $2}' || true)"
+  stanza-create|check|backup|restore|info)
+    PRIMARY="$(detect_primary)" || die "No Patroni primary detected"
 
-if [[ "$CURRENT" == "$PRIMARY" ]]; then
-  echo "$(ts) INFO: primary unchanged (${PRIMARY})" >> "$LOG"
-  exit 0
-fi
+    exec pgbackrest \
+      --stanza="${STANZA}" \
+      --pg1-host="${PRIMARY}" \
+      --pg1-host-user="root" \
+      --pg1-host-cmd="/usr/local/bin/pgbackrest_host_cmd" \
+      "${ACTION}" "$@"
+    ;;
 
-cp -a "$CONF" "${CONF}.bak.$(date +%F_%H%M%S)"
-
-if grep -qE '^[[:space:]]*pg1-host[[:space:]]*=' "$CONF"; then
-  sed -i -E "s|^[[:space:]]*pg1-host[[:space:]]*=.*$|pg1-host=${PRIMARY}|g" "$CONF"
-else
-  printf "pg1-host=%s\n%s" "$PRIMARY" "$(cat "$CONF")" > "${CONF}.tmp" && mv "${CONF}.tmp" "$CONF"
-fi
-
-echo "$(ts) INFO: updated pg1-host: ${CURRENT:-<none>} -> ${PRIMARY}" >> "$LOG"
-
-if pgbackrest --stanza="$STANZA" check >> "$LOG" 2>&1; then
-  echo "$(ts) INFO: pgbackrest check OK (primary=${PRIMARY})" >> "$LOG"
-  exit 0
-else
-  echo "$(ts) ERROR: pgbackrest check FAILED after update (primary=${PRIMARY})" >> "$LOG"
-  exit 4
-fi
+  *)
+    die "Unknown action: ${ACTION}"
+    ;;
+esac
 

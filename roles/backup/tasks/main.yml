@@ -1,33 +1,62 @@
 ---
 # roles/backup/tasks/main.yml
 
-- import_tasks: nfs_server.yml
-  when: inventory_hostname in groups.get('backup_server', [])
+# ------------------------------------------------------------------
+# 그룹 목록을 안전하게 변수로 고정 (groups.get 사용)
+# ------------------------------------------------------------------
+- name: Set backup group lists (safe defaults)
+  ansible.builtin.set_fact:
+    _backup_server_hosts: "{{ groups.get('backup_server', []) }}"
+    _backup_client_hosts: "{{ groups.get('backup_clients', []) }}"
+  tags: ['backup']
 
-- import_tasks: nfs_client.yml
-  when: inventory_hostname in groups.get('backup_clients', [])
+# ------------------------------------------------------------------
+# NFS SERVER: storageVM(backup_server)에서만 실행
+# ------------------------------------------------------------------
+- name: Run NFS server tasks only on backup_server (storageVM)
+  ansible.builtin.import_tasks: nfs_server.yml
+  when: inventory_hostname in _backup_server_hosts
+  tags: ['backup', 'nfs_server']
 
-- import_tasks: pgbackrest_install.yml
-  when: inventory_hostname in groups.get('backup_clients', [])
+# ------------------------------------------------------------------
+# NFS CLIENT: dbb(backup_clients)에서만 실행
+# ------------------------------------------------------------------
+- name: Run NFS client tasks only on backup_clients (dbb)
+  ansible.builtin.import_tasks: nfs_client.yml
+  when: inventory_hostname in _backup_client_hosts
+  tags: ['backup', 'nfs_client']
 
-- import_tasks: pgbackrest_config.yml
-  when: inventory_hostname in groups.get('backup_clients', [])
+# ------------------------------------------------------------------
+# pgBackRest 패키지 설치: 서버/클라이언트 모두 필요(일반적)
+# - storageVM: repo 서버 역할이면 pgbackrest 바이너리 필요
+# - dbb      : 백업 수행/제어 노드면 당연히 필요
+# ------------------------------------------------------------------
+- name: Install pgBackRest packages on backup_server and backup_clients
+  ansible.builtin.import_tasks: pgbackrest_install.yml
+  when: (inventory_hostname in _backup_server_hosts) or (inventory_hostname in _backup_client_hosts)
+  tags: ['backup', 'pgbackrest_install']
 
-# (삭제) SSH known_hosts/bootstrap은 roles/ssh_bootstrap에서 처리
-# - import_tasks: pgbackrest_ssh_knownhosts.yml
-#   when: inventory_hostname in groups.get('backup_clients', [])
+# ------------------------------------------------------------------
+# pgBackRest 구성/스탠자/팔로우/크론: "ONLY on dbb" 정책 반영
+# (backup_clients 그룹에만 적용)
+# ------------------------------------------------------------------
+- name: Configure pgBackRest only on backup_clients (dbb)
+  ansible.builtin.import_tasks: pgbackrest_config.yml
+  when: inventory_hostname in _backup_client_hosts
+  tags: ['backup', 'pgbackrest_config']
 
-# (삭제) DB 노드 authorized_keys 주입/검증은 roles/ssh_bootstrap에서 처리
-# - import_tasks: pgbackrest_ssh_root_access.yml
-#   when: inventory_hostname in groups.get('backup_clients', [])
+- name: Create/Check pgBackRest stanza only on backup_clients (dbb)
+  ansible.builtin.import_tasks: pgbackrest_stanza.yml
+  when: inventory_hostname in _backup_client_hosts
+  tags: ['backup', 'pgbackrest_stanza']
 
-# SSH OK 이후에만 stanza/check 수행 (이제 ssh_bootstrap이 보장)
-- import_tasks: pgbackrest_stanza.yml
-  when: inventory_hostname in groups.get('backup_clients', [])
+- name: Follow primary (Patroni) only on backup_clients (dbb)
+  ansible.builtin.import_tasks: pgbackrest_follow_primary.yml
+  when: inventory_hostname in _backup_client_hosts
+  tags: ['backup', 'pgbackrest_follow_primary']
 
-- import_tasks: pgbackrest_follow_primary.yml
-  when: inventory_hostname in groups.get('backup_clients', [])
-
-- import_tasks: db_backup_cron.yml
-  when: inventory_hostname in groups.get('backup_clients', [])
+- name: Setup backup cron only on backup_clients (dbb)
+  ansible.builtin.import_tasks: db_backup_cron.yml
+  when: inventory_hostname in _backup_client_hosts
+  tags: ['backup', 'cron']
 

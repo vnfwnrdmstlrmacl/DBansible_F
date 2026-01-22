@@ -1,0 +1,16 @@
+---
+# DB 노드는 Proxy를 GW로 쓰는 NAT 환경이므로 rp_filter를 꺼야 함
+
+- name: Disable rp_filter for NATed environment (DB nodes)
+  ansible.builtin.copy:
+    dest: /etc/sysctl.d/99-disable-rpfilter.conf
+    mode: "0644"
+    content: |
+      net.ipv4.conf.all.rp_filter = 0
+      net.ipv4.conf.default.rp_filter = 0
+      net.ipv4.conf.ens160.rp_filter = 0
+
+- name: Apply sysctl settings
+  ansible.builtin.command: sysctl --system
+  changed_when: false
+

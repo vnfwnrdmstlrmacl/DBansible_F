@@ -1,23 +1,19 @@
 ---
-- name: Deploy backup script
-  ansible.builtin.template:
-    src: db_backup.sh.j2
-    dest: /usr/local/bin/db_backup.sh
-    mode: "0755"
-    owner: root
-    group: root
+# roles/backup/tasks/db_backup_cron.yml
+# 크론도 follow-primary 스크립트를 사용한다.
 
-- name: Ensure log file exists
-  ansible.builtin.file:
-    path: /var/log/db_backup.log
-    state: touch
-    mode: "0644"
+# main.yml에서 backup_clients에만 import_tasks 하므로 여기서는 assert로 실패시키지 않는다.
 
-- name: Register daily backup cron
+- name: Cron - pgBackRest full backup (follow primary)
   ansible.builtin.cron:
-    name: "DB Full Backup (pgBackRest) + etcd snapshot"
-    minute: "{{ backup_cron_minute | default('10') }}"
-    hour: "{{ backup_cron_hour | default('2') }}"
-    user: root
-    job: "/usr/local/bin/db_backup.sh"
+    name: "pgBackRest Full Backup (follow primary)"
+    minute: "0"
+    hour: "1"
+    job: "/usr/local/bin/pgbackrest_follow_primary backup --type=full"
 
+- name: Cron - pgBackRest check (follow primary)
+  ansible.builtin.cron:
+    name: "pgBackRest Check (follow primary)"
+    minute: "30"
+    hour: "0"
+    job: "/usr/local/bin/pgbackrest_follow_primary check"

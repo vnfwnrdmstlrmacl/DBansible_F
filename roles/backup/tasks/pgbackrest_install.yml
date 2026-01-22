@@ -1,39 +1,84 @@
 ---
-# CentOS Stream 9 / RHEL9 계열에서 pgBackRest는 기본 repo에 없을 수 있으므로
-# PGDG repo를 추가한 뒤 설치한다.
+# roles/backup/tasks/pgbackrest_install.yml
+# pgBackRest 패키지 설치
+#
+# main.yml에서 호스트 그룹별 when으로 import_tasks 하므로 여기서는 assert로 실패시키지 않는다.
 
-- name: Install base tooling
+- name: Install prereqs
   ansible.builtin.dnf:
     name:
       - curl
       - ca-certificates
+      - dnf-plugins-core
     state: present
 
-# (권장) EPEL 먼저 활성화: libssh2 같은 의존성 이슈 대비
-# - RHEL9 계열에서 pgbackrest가 libssh2를 요구하는 빌드가 있어 EPEL이 필요할 수 있음
-- name: Enable EPEL repository
+- name: Enable CRB repo (best-effort)
+  ansible.builtin.command: dnf config-manager --set-enabled crb
+  changed_when: false
+  failed_when: false
+
+- name: Install EPEL release (best-effort)
   ansible.builtin.dnf:
     name: epel-release
     state: present
   failed_when: false
 
-# PGDG 공식 repo RPM 설치 (EL9 공용)
-# 이 repo가 있어야 pgbackrest 패키지가 제공됨
-- name: Install PGDG repository RPM
+- name: Refresh dnf cache (best-effort)
+  ansible.builtin.dnf:
+    update_cache: true
+  failed_when: false
+
+# 1) 먼저 기본 repo/EPEL에서 시도
+- name: Try install pgbackrest from current repos
+  ansible.builtin.dnf:
+    name: pgbackrest
+    state: present
+  register: _pgbr_install_try
+  failed_when: false
+
+# 2) 실패 시 PGDG repo 추가 후 재시도
+- name: Install PGDG repo rpm when repo install failed
   ansible.builtin.dnf:
     name: "https://download.postgresql.org/pub/repos/yum/reporpms/EL-9-x86_64/pgdg-redhat-repo-latest.noarch.rpm"
     state: present
     disable_gpg_check: true
+  when: _pgbr_install_try is failed or (_pgbr_install_try.rc is defined and _pgbr_install_try.rc|int != 0)
+  register: _pgdg_repo
+  failed_when: false
 
-# pgbackrest는 보통 pgdg-common에서 제공됨
-- name: Install pgBackRest
+- name: Refresh dnf cache after PGDG (best-effort)
+  ansible.builtin.dnf:
+    update_cache: true
+  when: _pgdg_repo is changed
+  failed_when: false
+
+- name: Install pgbackrest from PGDG
   ansible.builtin.dnf:
     name: pgbackrest
     state: present
-    update_cache: true
-- name: Ensure postgres user exists
-  ansible.builtin.user:
-    name: postgres
-    state: present
+  when: _pgbr_install_try is failed or (_pgbr_install_try.rc is defined and _pgbr_install_try.rc|int != 0)
+  register: _pgbr_install_final
   failed_when: false
+
+# 3) 바이너리 존재 여부 최종 검증 (여기서만 fail)
+- name: Check pgbackrest binary path
+  ansible.builtin.stat:
+    path: /usr/bin/pgbackrest
+  register: _pgbr_bin
+
+- name: Fail if pgbackrest still missing after install attempts
+  ansible.builtin.fail:
+    msg: >
+      pgbackrest 설치에 실패했습니다. (CentOS Stream 9에서 repo 미구성/네트워크/DNS 문제 가능)
+      dnf 결과(_pgbr_install_try, _pgbr_install_final)를 확인하세요.
+  when: not _pgbr_bin.stat.exists
+
+- name: Verify pgbackrest exists
+  ansible.builtin.command: /usr/bin/pgbackrest version
+  register: pgbr_ver
+  changed_when: false
+
+- name: Show pgbackrest version
+  ansible.builtin.debug:
+    msg: "{{ pgbr_ver.stdout | default('') }}"
 

@@ -1,65 +1,80 @@
 ---
 # roles/backup/tasks/nfs_client.yml
-# NFS Client: runs on backup_clients group (dbb)
+# backup client(dbb)에서 NFS repo 마운트
+# 핵심:
+# - NFS 마운트 포인트에서는 절대 chown 시도하지 않는다.
+# - 이미 마운트되어 있으면 mount point 생성/권한 작업은 스킵한다.
 
-- name: Ensure this runs only on backup_clients hosts
+- name: Assert this runs only on backup clients
   ansible.builtin.assert:
     that:
-      - inventory_hostname in groups.get('backup_clients', [])
-    fail_msg: "nfs_client.yml must run only on hosts in group 'backup_clients'."
-  tags: [nfs]
+      - inventory_hostname in groups.get('backup_clients', []) or inventory_hostname in groups.get('db_backup', [])
+    fail_msg: "nfs_client.yml must run only on backup client nodes (e.g., dbb)."
 
-- name: Validate backup_server group exists and has at least 1 host
-  ansible.builtin.assert:
-    that:
-      - groups.get('backup_server') is not none
-      - (groups.get('backup_server') | length) > 0
-    fail_msg: "Group 'backup_server' is missing or empty. Define it in inventory."
-  tags: [nfs]
+- name: Set NFS vars
+  ansible.builtin.set_fact:
+    nfs_mount: "{{ pgbackrest_repo_path | default('/mnt/pgbackrest') }}"
+    nfs_export: "{{ pgbackrest_nfs_export | default('/exports/pgbackrest') }}"
+    nfs_server: >-
+      {{
+        pgbackrest_nfs_server
+        | default(
+            hostvars[groups['storage'][0]].ansible_host
+            | default(groups['storage'][0])
+          )
+      }}
 
-- name: Install NFS client packages
+- name: Install NFS client utils
   ansible.builtin.dnf:
     name: nfs-utils
     state: present
-  tags: [nfs]
 
-- name: Ensure postgres user exists
-  ansible.builtin.user:
-    name: postgres
-    system: true
-    create_home: true
-    home: /var/lib/pgsql
-    shell: /sbin/nologin
-  become: true
-  tags: [nfs]
+# 현재 마운트 여부 확인 (ansible_mounts는 fact)
+- name: Gather mount facts
+  ansible.builtin.setup:
+    filter: ansible_mounts
+  changed_when: false
 
-- name: Create mount point
+- name: Detect if repo is already mounted
+  ansible.builtin.set_fact:
+    pgbackrest_repo_is_mounted: >-
+      {{
+        (ansible_mounts | selectattr('mount', 'equalto', nfs_mount) | list | length) > 0
+      }}
+
+# 마운트 전에는 디렉토리가 있어야 하므로 "마운트 안 된 경우에만" 생성
+# 그리고 owner/group을 아예 넣지 않는다(= chown 호출 자체 제거)
+- name: Ensure mount point exists (pre-mount only, NO chown)
   ansible.builtin.file:
-    path: "{{ backup_nfs_mount_point | default('/var/lib/pgbackrest') }}"
+    path: "{{ nfs_mount }}"
     state: directory
-    owner: postgres
-    group: postgres
     mode: "0755"
-  become: true
-  tags: [nfs]
+  when: not pgbackrest_repo_is_mounted
 
-- name: Mount NFS storage (NFSv4 recommended)
+# 혹시 이전에 꼬인 마운트가 있으면 정리하고 재마운트하고 싶을 때만 사용
+# 기본은 건드리지 않음 (필요하면 변수로 제어)
+- name: Optionally umount existing mount (best-effort)
+  ansible.builtin.command: "umount -lf {{ nfs_mount }}"
+  register: _um
+  failed_when: false
+  changed_when: _um.rc == 0
+  when: pgbackrest_force_remount | default(false) | bool
+
+- name: Mount NFS repo (NFSv4)
   ansible.posix.mount:
-    path: "{{ backup_nfs_mount_point | default('/var/lib/pgbackrest') }}"
-    src: "{{ hostvars[groups['backup_server'][0]].ansible_host | default(groups['backup_server'][0]) }}:{{ backup_nfs_export_dir | default(nfs_export_path) }}"
+    path: "{{ nfs_mount }}"
+    src: "{{ nfs_server }}:{{ nfs_export }}"
     fstype: nfs4
-    opts: "rw,sync,hard,timeo=600,retrans=2,_netdev"
+    opts: "rw,hard,timeo=600,retrans=2,_netdev"
     state: mounted
-  become: true
-  tags: [nfs]
 
-- name: Ensure pgBackRest repo directory exists
-  ansible.builtin.file:
-    path: "{{ pgbackrest_repo_path | default((backup_nfs_mount_point | default('/var/lib/pgbackrest')) ~ '/repo1') }}"
-    state: directory
-    owner: postgres
-    group: postgres
-    mode: "0755"
-  become: true
-  tags: [nfs]
+- name: Verify mount options (must be rw)
+  ansible.builtin.command: "findmnt -no OPTIONS {{ nfs_mount }}"
+  register: _mnt_opts
+  changed_when: false
+
+- name: Fail if mount is read-only
+  ansible.builtin.fail:
+    msg: "NFS mount is read-only on {{ nfs_mount }} (opts={{ _mnt_opts.stdout }}). Fix export options on storageVM."
+  when: "'ro' in (_mnt_opts.stdout | default('')).split(',')"
 

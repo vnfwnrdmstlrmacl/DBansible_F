@@ -1,43 +1,22 @@
 #!/usr/bin/env bash
-# pgBackRest SSH wrapper (DEBUG + SAFE)
-# 목적:
-# - pgBackRest가 ssh에 넘기는 인자 중 "--", "-" 토큰 때문에 ssh 파싱이 깨지는 경우가 있음
-# - 실제로 넘어오는 RAW argv를 로그로 남겨서 원인을 확정하고
-# - 안전하게 "--" / "-" / "-\r" / "--\r" 만 제거한 뒤 ssh 실행
-
 set -euo pipefail
 
-LOG="/var/log/pgbackrest_ssh_wrapper.log"
-mkdir -p "$(dirname "$LOG")" || true
-touch "$LOG" || true
-chmod 0644 "$LOG" || true
+# Wrapper 목적:
+# - pgBackRest가 ssh 실행 시 '--' 또는 '-' 같은 단독 토큰을 끼워 넣는 케이스를 방어
+# - CRLF/이상 토큰 정리 후 OpenSSH 실행
 
-ts() { date '+%F %T'; }
+SSH_BIN="/usr/bin/ssh"
 
-# RAW argv dump (quoted)
-{
-  echo "[$(ts)] RAW: $(printf '%q ' "$@")"
-} >> "$LOG" || true
-
-clean=()
+# 토큰 정리: '--' 또는 '-' 단독 토큰 제거
+ARGS=()
 for a in "$@"; do
-  # strip CR
+  # CR 제거(혹시 모르니)
   a="${a//$'\r'/}"
-
-  # drop empty
-  [[ -z "$a" ]] && continue
-
-  # drop ONLY exact "--" or "-" after CR strip
   if [[ "$a" == "--" || "$a" == "-" ]]; then
     continue
   fi
-
-  clean+=("$a")
+  ARGS+=("$a")
 done
 
-{
-  echo "[$(ts)] CLN: $(printf '%q ' "${clean[@]}")"
-} >> "$LOG" || true
-
-exec /usr/bin/ssh "${clean[@]}"
+exec "${SSH_BIN}" "${ARGS[@]}"
 

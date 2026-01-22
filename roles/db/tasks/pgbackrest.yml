@@ -1,142 +1,132 @@
 ---
 # roles/db/tasks/pgbackrest.yml
-# 목표:
-# - db_cluster(db-a/db-s)에 pgbackrest 바이너리 설치를 "재검증 기반"으로 보장
-# - roles/backup은 dbb에서 conf/ssh wrapper/팔로우 프라이머리 제어 담당
+# DB 노드(db-a/db-s): pgbackrest 패키지 "설치"만 담당
+# 설정(/etc/pgbackrest/*)은 건드리지 않는다.
 
-- name: "Check pgbackrest exists (db_cluster) - pre"
-  ansible.builtin.command: "bash -lc 'command -v pgbackrest'"
+- name: Check pgbackrest exists (db_cluster) - pre
+  ansible.builtin.shell: |
+    set -e
+    command -v pgbackrest >/dev/null 2>&1
+  args:
+    executable: /bin/bash
   register: pgbr_pre
   changed_when: false
   failed_when: false
-  when: inventory_hostname in groups.get('db_cluster', [])
 
-- name: "Install prereqs (db_cluster) when pgbackrest missing"
+- name: Set fact- pgbackrest_missing (db_cluster)
+  ansible.builtin.set_fact:
+    pgbackrest_missing: "{{ pgbr_pre.rc != 0 }}"
+  changed_when: false
+
+- name: Install prereqs (db_cluster) when pgbackrest missing
   ansible.builtin.dnf:
     name:
       - curl
       - ca-certificates
       - dnf-plugins-core
     state: present
-  register: _dnf_prereq
-  retries: 3
-  delay: 3
-  until: _dnf_prereq is succeeded
-  when:
-    - inventory_hostname in groups.get('db_cluster', [])
-    - pgbr_pre.rc != 0
+  when: pgbackrest_missing
 
-- name: "Enable CRB repo (best-effort, db_cluster)"
-  ansible.builtin.command: "dnf -y config-manager --set-enabled crb"
-  register: _crb
+- name: Enable CRB repo (best-effort, db_cluster)
+  ansible.builtin.command: dnf config-manager --set-enabled crb
   changed_when: false
   failed_when: false
-  when:
-    - inventory_hostname in groups.get('db_cluster', [])
-    - pgbr_pre.rc != 0
+  when: pgbackrest_missing
 
-- name: "Install EPEL release (best-effort, db_cluster)"
+- name: Install EPEL release (best-effort, db_cluster)
   ansible.builtin.dnf:
     name: epel-release
     state: present
-  register: _epel
-  retries: 3
-  delay: 3
-  until: _epel is succeeded
   failed_when: false
-  when:
-    - inventory_hostname in groups.get('db_cluster', [])
-    - pgbr_pre.rc != 0
+  when: pgbackrest_missing
 
-- name: "Refresh dnf cache (best-effort, db_cluster)"
+- name: Refresh dnf cache (best-effort, db_cluster)
   ansible.builtin.dnf:
     update_cache: true
-  register: _cache1
-  retries: 3
-  delay: 3
-  until: _cache1 is succeeded
   failed_when: false
-  when:
-    - inventory_hostname in groups.get('db_cluster', [])
-    - pgbr_pre.rc != 0
+  when: pgbackrest_missing
 
-# -------------------------
-# 1차 설치 시도
-# -------------------------
-- name: "Try install pgbackrest from current repos (db_cluster)"
+# 1) 기본 repo에서 시도
+- name: Try install pgbackrest from current repos (db_cluster)
   ansible.builtin.dnf:
     name: pgbackrest
     state: present
   register: pgbr_try
   failed_when: false
-  when:
-    - inventory_hostname in groups.get('db_cluster', [])
-    - pgbr_pre.rc != 0
+  when: pgbackrest_missing
 
-- name: "Re-check pgbackrest exists (db_cluster) - after try"
-  ansible.builtin.command: "bash -lc 'command -v pgbackrest'"
+# 설치가 됐는지 "반드시" 재확인
+- name: Re-check pgbackrest exists (db_cluster) - after try
+  ansible.builtin.shell: |
+    set -e
+    command -v pgbackrest >/dev/null 2>&1
+  args:
+    executable: /bin/bash
   register: pgbr_after_try
   changed_when: false
   failed_when: false
-  when:
-    - inventory_hostname in groups.get('db_cluster', [])
-    - pgbr_pre.rc != 0
+  when: pgbackrest_missing
 
-- name: "Set fact: pgbackrest_missing_after_try (db_cluster)"
+- name: Set fact- pgbackrest_missing_after_try (db_cluster)
   ansible.builtin.set_fact:
-    pgbackrest_missing_after_try: "{{ (pgbr_pre.rc != 0) and (pgbr_after_try.rc != 0) }}"
-  when: inventory_hostname in groups.get('db_cluster', [])
+    pgbackrest_missing_after_try: "{{ (pgbr_after_try.rc | default(1)) != 0 }}"
+  changed_when: false
+  when: pgbackrest_missing
 
-# -------------------------
-# PGDG fallback (재검증 기반)
-# -------------------------
-- name: "Install PGDG repo rpm (db_cluster) when still missing"
+# 2) 여전히 없으면 PGDG repo 추가
+- name: Install PGDG repo rpm (db_cluster) when still missing
   ansible.builtin.dnf:
     name: "https://download.postgresql.org/pub/repos/yum/reporpms/EL-9-x86_64/pgdg-redhat-repo-latest.noarch.rpm"
     state: present
     disable_gpg_check: true
-  register: _pgdg
-  retries: 3
-  delay: 3
-  until: _pgdg is succeeded
-  when:
-    - inventory_hostname in groups.get('db_cluster', [])
-    - pgbackrest_missing_after_try | default(false)
+  register: pgdg_repo
+  when: pgbackrest_missing and pgbackrest_missing_after_try
+  failed_when: false
 
-- name: "Refresh dnf cache after PGDG (db_cluster)"
+- name: Refresh dnf cache after PGDG (db_cluster)
   ansible.builtin.dnf:
     update_cache: true
-  register: _cache2
-  retries: 3
-  delay: 3
-  until: _cache2 is succeeded
-  when:
-    - inventory_hostname in groups.get('db_cluster', [])
-    - pgbackrest_missing_after_try | default(false)
+  when: pgbackrest_missing and pgbackrest_missing_after_try
+  failed_when: false
 
-- name: "Install pgbackrest after PGDG (db_cluster)"
+- name: Install pgbackrest after PGDG (db_cluster)
   ansible.builtin.dnf:
     name: pgbackrest
     state: present
   register: pgbr_pgdg
-  retries: 3
-  delay: 5
-  until: pgbr_pgdg is succeeded
-  when:
-    - inventory_hostname in groups.get('db_cluster', [])
-    - pgbackrest_missing_after_try | default(false)
+  when: pgbackrest_missing and pgbackrest_missing_after_try
+  failed_when: false
 
-# -------------------------
-# 최종 검증 (여기서 실패하면 '진짜로' repo/DNS 문제임)
-# -------------------------
-- name: "Verify pgbackrest command exists (db_cluster) - final"
-  ansible.builtin.command: "bash -lc 'command -v pgbackrest && pgbackrest version'"
+# 3) 최종 재확인 (여기서도 없으면 "즉시 실패" + 설치 로그 출력
+- name: Final check pgbackrest exists (db_cluster)
+  ansible.builtin.shell: |
+    set -e
+    command -v pgbackrest >/dev/null 2>&1
+    pgbackrest version
+  args:
+    executable: /bin/bash
   register: pgbr_final
   changed_when: false
-  when: inventory_hostname in groups.get('db_cluster', [])
+  failed_when: false
 
-- name: "Show pgbackrest version (db_cluster)"
+- name: Fail with actionable message if pgbackrest still missing (db_cluster)
+  ansible.builtin.fail:
+    msg: |
+      pgbackrest is still NOT installed on {{ inventory_hostname }} (ansible_host={{ ansible_host }}).
+
+      1) Check repo/DNS connectivity from this DB node:
+         - curl -I https://download.postgresql.org
+         - dnf repolist
+         - dnf -y makecache
+
+      2) Recent install attempt outputs:
+         - try repos: {{ (pgbr_try.msg | default(pgbr_try.stderr | default('N/A'))) if (pgbr_try is defined) else 'N/A' }}
+         - pgdg repo: {{ (pgdg_repo.msg | default(pgdg_repo.stderr | default('N/A'))) if (pgdg_repo is defined) else 'N/A' }}
+         - pgdg install: {{ (pgbr_pgdg.msg | default(pgbr_pgdg.stderr | default('N/A'))) if (pgbr_pgdg is defined) else 'N/A' }}
+  when: pgbr_final.rc != 0
+
+- name: Show pgbackrest version (db_cluster)
   ansible.builtin.debug:
-    msg: "{{ pgbr_final.stdout }}"
-  when: inventory_hostname in groups.get('db_cluster', [])
+    msg: "{{ pgbr_final.stdout | default('') }}"
+  when: pgbr_final.rc == 0
 

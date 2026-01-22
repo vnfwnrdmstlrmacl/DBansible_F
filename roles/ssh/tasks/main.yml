@@ -16,8 +16,105 @@
     fail_msg: "inventory에 [db_backup] 그룹이 없거나 비어있음. dbb가 db_backup에 들어있는지 확인."
   run_once: true
 
-# 내부적으로 계속 쓸 변수(로컬 변수처럼 사용)
-# Jinja에서 바로 groups['db_backup'][0] 를 쓰면 된다.
+###############################################################################
+# 1) dbb에서 /root/.ssh 보장
+###############################################################################
+- name: Ensure /root/.ssh exists on dbb
+  ansible.builtin.file:
+    path: /root/.ssh
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+  when: inventory_hostname == groups['db_backup'][0]
+  become: true
+
+###############################################################################
+# 2) dbb SSH 키 존재 확인
+###############################################################################
+- name: Check if dbb SSH private key exists
+  ansible.builtin.stat:
+    path: "{{ ssh_dbb_key_path }}"
+  register: dbb_key_stat
+  when: inventory_hostname == groups['db_backup'][0]
+  become: true
+
+###############################################################################
+# 3) dbb SSH 키 생성 (없을 때만)
+###############################################################################
+- name: Generate ed25519 SSH key on dbb (if missing)
+  ansible.builtin.command: >
+    ssh-keygen -t ed25519 -f {{ ssh_dbb_key_path }} -N "" -C "root@{{ inventory_hostname }}"
+  args:
+    creates: "{{ ssh_dbb_key_path }}"
+  when:
+    - inventory_hostname == groups['db_backup'][0]
+    - not dbb_key_stat.stat.exists
+  become: true
+
+###############################################################################
+# 4) dbb 공개키 읽기
+###############################################################################
+- name: Read dbb public key
+  ansible.builtin.slurp:
+    src: "{{ ssh_dbb_key_path }}.pub"
+  register: dbb_pubkey_raw
+  when: inventory_hostname == groups['db_backup'][0]
+  become: true
+
+###############################################################################
+# 5) dbb 공개키를 dbb hostvars에 저장
+###############################################################################
+- name: Save dbb public key on dbb hostvars
+  ansible.builtin.set_fact:
+    dbb_public_key: "{{ (dbb_pubkey_raw.content | b64decode).strip() }}"
+  when: inventory_hostname == groups['db_backup'][0]
+
+###############################################################################
+# 6) db_cluster에 dbb 공개키 추가
+###############################################################################
+- name: Ensure dbb public key is present in db_cluster root authorized_keys
+  ansible.posix.authorized_key:
+    user: "{{ ssh_target_user }}"
+    state: present
+    key: "{{ hostvars[groups['db_backup'][0]]['dbb_public_key'] }}"
+    manage_dir: true
+  when: inventory_hostname in groups.get(ssh_dbb_target_group, [])
+  become: true
+
+###############################################################################
+# 7) 검증: dbb -> db_cluster SSH 키 인증 테스트
+###############################################################################
+- name: Verify dbb -> db_cluster SSH using key (BatchMode)
+  ansible.builtin.command: >
+    ssh -i {{ ssh_dbb_key_path }}
+    -o IdentitiesOnly=yes
+    -o BatchMode=yes
+    -o StrictHostKeyChecking=accept-new
+    -o UserKnownHostsFile=/root/.ssh/known_hosts
+    {{ ssh_target_user }}@{{ hostvars[item].ansible_host | default(item) }}
+    "echo OK"
+  delegate_to: "{{ groups['db_backup'][0] }}"
+  run_once: true
+  loop: "{{ groups.get(ssh_dbb_target_group, []) }}"
+  changed_when: false
+---
+# roles/ssh/tasks/main.yml
+#
+# 전제:
+# - inventory에 [db_backup] 그룹이 존재하고, 그 안에 dbb가 1대 이상 들어있다.
+# - db_cluster 그룹(또는 ssh_dbb_target_group)에는 키를 배포할 DB 노드들이 들어있다.
+
+###############################################################################
+# 0) dbb 호스트명 결정 (inventory에서 첫 번째 db_backup)
+###############################################################################
+- name: Assert db_backup group is defined and non-empty
+  ansible.builtin.assert:
+    that:
+      - groups['db_backup'] is defined
+      - (groups['db_backup'] | length) > 0
+    fail_msg: "inventory에 [db_backup] 그룹이 없거나 비어있음. dbb가 db_backup에 들어있는지 확인."
+  run_once: true
 
 ###############################################################################
 # 1) dbb에서 /root/.ssh 보장
@@ -77,7 +174,7 @@
 # 6) db_cluster에 dbb 공개키 추가
 ###############################################################################
 - name: Ensure dbb public key is present in db_cluster root authorized_keys
-  ansible.builtin.authorized_key:
+  ansible.posix.authorized_key:
     user: "{{ ssh_target_user }}"
     state: present
     key: "{{ hostvars[groups['db_backup'][0]]['dbb_public_key'] }}"

@@ -8,15 +8,13 @@
   when: proxy_nat_use_iptables_services | bool
 
 # firewalld와 iptables-services는 같이 쓰면 충돌 나는 경우가 많음
-- name: Disable firewalld to avoid conflicts (optional)
-  ansible.builtin.service:
+- name: Stop/disable/mask firewalld on proxy
+  ansible.builtin.systemd:
     name: firewalld
     state: stopped
     enabled: false
-  when:
-    - proxy_nat_use_iptables_services | bool
-    - proxy_disable_firewalld | default(true) | bool
-  ignore_errors: true
+    masked: true
+  failed_when: false
 
 - name: Enable IPv4 forwarding (runtime + persistent)
   ansible.posix.sysctl:
